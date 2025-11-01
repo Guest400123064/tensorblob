@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import io
 import os
-import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,30 +34,109 @@ class TensorBlob(ConfigMixin):
 
     @classmethod
     def open(cls, filename, mode="r", *, dtype=None, shape=None, block_size=8192):
+        """
+        Open a TensorBlob with file-like semantics.
+        
+        Args:
+            filename: Directory path for the blob storage
+            mode: Access mode string (similar to built-in open):
+                - 'r': read-only, must exist
+                - 'w': write-only, truncate if exists
+                - 'a': append-only, must exist
+                - 'x': exclusive create, fail if exists
+                - '+': add to r/w/a for read+write access
+            dtype: Data type for tensors (required for new blobs)
+            shape: Shape of individual tensors (required for new blobs)
+            block_size: Number of tensors per block (default: 8192)
+        """
+        # Validate and parse mode
+        if not mode or not all(c in "rwax+" for c in mode):
+            raise ValueError(f"Invalid mode: {mode!r}")
+        
+        base_mode = mode.replace("+", "")
+        if len(base_mode) != 1 or base_mode not in "rwax":
+            raise ValueError(
+                f"Mode must be one of 'r', 'w', 'a', 'x' (optionally with '+'), got {mode!r}"
+            )
+        
         filename = Path(filename).expanduser().resolve()
-        if (filename / cls.config_name).exists() or mode in "ar":
+        config_exists = (filename / cls.config_name).exists()
+        blob_exists = config_exists and (filename / cls.states_name).exists()
+        
+        # Handle mode-specific requirements
+        if base_mode == "r":
+            # Read mode: blob must exist
+            if not blob_exists:
+                raise FileNotFoundError(
+                    f"TensorBlob does not exist at {filename} (mode='r' requires existing blob)"
+                )
             return cls.from_config(
                 save_directory=filename,
                 runtime_kwargs={"mode": mode, "filename": str(filename)},
             )
-        if not filename.exists():
-            filename.mkdir(parents=True)
+        
+        elif base_mode == "w":
+            # Write mode: truncate if exists, create if not
+            if blob_exists:
+                # Truncate: remove all block files and state file
+                states = TensorBlobStates.load(filename / cls.states_name)
+                for bd in states.bds:
+                    block_path = filename / bd
+                    if block_path.exists():
+                        block_path.unlink()
+                # Remove state file to truly truncate
+                (filename / cls.states_name).unlink()
+            
+            # Create or recreate
+            if not filename.exists():
+                filename.mkdir(parents=True)
+            
             if dtype is None or shape is None:
                 raise ValueError(
-                    "Cannot create new blob with missing 'dtype' <%s> or 'shape' <%s>!"
-                    % (str(dtype), str(shape))
+                    f"Cannot create blob with missing 'dtype' ({dtype!r}) or 'shape' ({shape!r})"
                 )
-        filename = str(filename)
-
-        if not isinstance(dtype, torch.dtype):
-            if not isinstance(dtype, str):
+            
+            if isinstance(dtype, torch.dtype):
+                dtype = str(dtype).replace("torch.", "")
+            elif not isinstance(dtype, str):
+                raise TypeError(f"dtype must be str or torch.dtype, got {type(dtype).__name__}")
+            
+            shape = (shape,) if isinstance(shape, int) else tuple(shape)
+            return cls(str(filename), dtype, shape, block_size, mode)
+        
+        elif base_mode == "a":
+            # Append mode: blob must exist
+            if not blob_exists:
+                raise FileNotFoundError(
+                    f"TensorBlob does not exist at {filename} (mode='a' requires existing blob)"
+                )
+            return cls.from_config(
+                save_directory=filename,
+                runtime_kwargs={"mode": mode, "filename": str(filename)},
+            )
+        
+        elif base_mode == "x":
+            # Exclusive create: fail if exists
+            if blob_exists or config_exists:
+                raise FileExistsError(
+                    f"TensorBlob already exists at {filename} (mode='x' requires new blob)"
+                )
+            
+            if not filename.exists():
+                filename.mkdir(parents=True)
+            
+            if dtype is None or shape is None:
                 raise ValueError(
-                    "Expecting str or torch.dtype for 'dtype', got <%s>"
-                    % str(type(dtype))
+                    f"Cannot create blob with missing 'dtype' ({dtype!r}) or 'shape' ({shape!r})"
                 )
-
-        shape = (shape,) if isinstance(shape, int) else shape
-        return cls(filename, dtype, shape, block_size, mode)  # pyright: ignore
+            
+            if isinstance(dtype, torch.dtype):
+                dtype = str(dtype).replace("torch.", "")
+            elif not isinstance(dtype, str):
+                raise TypeError(f"dtype must be str or torch.dtype, got {type(dtype).__name__}")
+            
+            shape = (shape,) if isinstance(shape, int) else tuple(shape)
+            return cls(str(filename), dtype, shape, block_size, mode)
 
     @register_to_config
     def __init__(
@@ -75,12 +152,20 @@ class TensorBlob(ConfigMixin):
         self.shape = shape
         self.block_size = block_size
         self.mode = mode
+        
+        # Parse mode flags
+        self._base_mode = mode.replace("+", "")
+        self._has_plus = "+" in mode
 
         self._pos = 0
         self._closed = False
         self._memmap = {}
 
         self._loadstates()
+        
+        # Set initial position based on mode
+        if self._base_mode == "a":
+            self._pos = len(self)
 
     @property
     def configpath(self) -> str:
@@ -93,6 +178,23 @@ class TensorBlob(ConfigMixin):
     @property
     def closed(self) -> bool:
         return self._closed
+    
+    @property
+    def readable(self) -> bool:
+        """Check if the blob is open for reading."""
+        return not self._closed and (self._base_mode == "r" or self._has_plus)
+    
+    @property
+    def writable(self) -> bool:
+        """Check if the blob is open for writing (excluding append mode)."""
+        return not self._closed and self._base_mode in "wx" or (
+            self._base_mode in "rw" and self._has_plus
+        )
+    
+    @property
+    def appendable(self) -> bool:
+        """Check if the blob is open for appending."""
+        return not self._closed and (self._base_mode == "a" or self.writable)
 
     def __enter__(self) -> TensorBlob:
         return self
@@ -143,18 +245,28 @@ class TensorBlob(ConfigMixin):
         return mmap
 
     def _loadstates(self) -> None:
+        """Load or initialize blob states based on mode."""
+        # Save config if creating new blob
         if not os.path.exists(self.configpath):
-            self.save_config(self.filename)
-        if not os.path.exists(self.statespath):
-            if self.mode in "ar":
+            if self._base_mode in "ra":
                 raise FileNotFoundError(
-                    "Cannot read from blob states under <%s>; file corrupted!"
-                    % self.filename
+                    f"Config file missing for blob at {self.filename}; file corrupted!"
+                )
+            self.save_config(self.filename)
+        
+        # Load or initialize states
+        if not os.path.exists(self.statespath):
+            if self._base_mode in "ra":
+                raise FileNotFoundError(
+                    f"States file missing for blob at {self.filename}; file corrupted!"
                 )
             self._states = TensorBlobStates()
-            self.flush()
-
-        self._states = TensorBlobStates.load(self.statespath)
+            if self.writable or self.appendable:
+                self.flush()
+        else:
+            self._states = TensorBlobStates.load(self.statespath)
+        
+        # Load existing memory-mapped blocks
         self._memmap = {
             name: MemoryMappedTensor.from_filename(
                 os.path.join(self.filename, name),
@@ -163,49 +275,162 @@ class TensorBlob(ConfigMixin):
             )
             for name in self._states.bds
         }
-        if not self._states.bds:
+        
+        # Create initial block if needed (only for writable modes)
+        if not self._states.bds and (self.writable or self.appendable):
             self._addblock()
-        self.flush()
+            self.flush()
 
     def tell(self) -> int:
+        """Return current position in the blob."""
+        if self.closed:
+            raise ValueError("I/O operation on closed blob.")
         return self._pos
 
-    def seek(self, pos: int):
+    def seek(self, pos: int, whence: int = 0) -> int:
+        """
+        Change stream position.
+        
+        Args:
+            pos: Position offset
+            whence: Reference point (0=start, 1=current, 2=end)
+            
+        Returns:
+            New absolute position
+        """
         if self.closed:
-            raise RuntimeError("Seek on a closed file.")
-        self._pos = max(min(pos, len(self)), 0)
+            raise ValueError("I/O operation on closed blob.")
+        
+        # In append mode with '+', seeking is allowed but writes still append
+        # In pure append mode without '+', only seeking within readable range makes sense
+        
+        if whence == 0:  # Absolute positioning
+            new_pos = pos
+        elif whence == 1:  # Relative to current
+            new_pos = self._pos + pos
+        elif whence == 2:  # Relative to end
+            new_pos = len(self) + pos
+        else:
+            raise ValueError(f"whence must be 0, 1, or 2, got {whence}")
+        
+        self._pos = max(min(new_pos, len(self)), 0)
+        return self._pos
 
     def close(self) -> None:
+        """Close the blob and flush any pending writes."""
         if self._closed:
             return
-        if self.mode in "wa":
+        if self.writable or self.appendable:
             self.flush()
         self._closed = True
 
     def flush(self) -> None:
+        """Flush write buffers to disk."""
         if self._closed:
-            raise IOError("Cannot flush closed blob.")
+            raise ValueError("I/O operation on closed blob.")
+        if not (self.writable or self.appendable):
+            raise IOError(f"Cannot flush blob opened in mode '{self.mode}'")
         self._states.dump(self.statespath)
 
-    def read(
-        self,
-    ):
-        pass
+    def read(self, n: int | None = None) -> torch.Tensor | None:
+        """
+        Read tensors from the blob.
+        
+        Args:
+            n: Number of tensors to read. If None, read all remaining tensors.
+               If 0, read nothing. If negative, read all remaining.
+        
+        Returns:
+            Stacked tensor of shape (n, *self.shape), or None if no data to read.
+        """
+        if self.closed:
+            raise ValueError("I/O operation on closed blob.")
+        if not self.readable:
+            raise IOError(f"Blob not open for reading (mode='{self.mode}')")
+        
+        # Determine how many tensors to read
+        if n is None or n < 0:
+            n = len(self) - self._pos
+        else:
+            n = min(n, len(self) - self._pos)
+        
+        if n == 0:
+            return None
+        
+        # Read tensors
+        tensors = []
+        start_pos = self._pos
+        for i in range(n):
+            idx = start_pos + i
+            count, offset = divmod(idx, self.block_size)
+            tensor = self._getblock(count)[offset].clone()
+            tensors.append(tensor)
+            self._pos += 1
+        
+        return torch.stack(tensors)
 
     def write(self, items: torch.Tensor) -> int:
+        """
+        Write tensors to the blob at current position.
+        
+        Args:
+            items: Tensor(s) to write. Will be reshaped to (-1, *self.shape).
+        
+        Returns:
+            Number of tensors written.
+        """
+        if self.closed:
+            raise ValueError("I/O operation on closed blob.")
+        if not self.writable:
+            raise IOError(f"Blob not open for writing (mode='{self.mode}')")
+        
         items = items.view(-1, *self.shape)
         for item in items:
+            # Extend blob if writing beyond current length
             if self._isfull() and self._pos >= len(self):
                 self._addblock()
+            
             blk = self._getblock(self._pos // self.block_size)
             blk[self._pos % self.block_size] = item
-            self._states.len += self._pos >= len(self)
+            
+            # Update length if writing beyond current end
+            if self._pos >= len(self):
+                self._states.len += 1
+            
             self._pos += 1
+        
         return items.size(0)
 
-    def append(self, item: torch.Tensor) -> int:
-        self.seek(len(self))
-        return self.write(item)
+    def append(self, items: torch.Tensor) -> int:
+        """
+        Append tensors to the end of the blob.
+        
+        Args:
+            items: Tensor(s) to append. Will be reshaped to (-1, *self.shape).
+        
+        Returns:
+            Number of tensors appended.
+        """
+        if self.closed:
+            raise ValueError("I/O operation on closed blob.")
+        if not self.appendable:
+            raise IOError(f"Blob not open for appending (mode='{self.mode}')")
+        
+        items = items.view(-1, *self.shape)
+        for item in items:
+            # Always append at the end
+            pos = len(self)
+            
+            if self._isfull():
+                self._addblock()
+            
+            blk = self._getblock(pos // self.block_size)
+            blk[pos % self.block_size] = item
+            self._states.len += 1
+        
+        # Move position to end after appending
+        self._pos = len(self)
+        return items.size(0)
 
     def extend(
         self, other: TensorBlob, copy: bool = True, maintain_order: bool = False
