@@ -1,0 +1,24 @@
+[project]
+name = "tensorblob"
+version = "0.1.0"
+description = "Lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "just-config-mixin>=0.1.1rc2",
+    "tensordict>=0.10.0",
+]
+
+[dependency-groups]
+dev = [
+    "bpython>=0.26",
+    "coverage>=7.11.0",
+    "pdoc>=16.0.0",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "ruff>=0.14.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.7,<0.10.0"]
+build-backend = "uv_build"
