@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs."
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    {name = "guest400123064", email = "wangy49@seas.upenn.edu"}
+]
+packages = [{include = "tensorblob", from = "src"}]
+license = {file = "LICENSE"}
 dependencies = [
     "just-config-mixin>=0.1.1rc2",
     "tensordict>=0.10.0",
