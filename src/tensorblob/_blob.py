@@ -46,8 +46,8 @@ class TensorBlob(ConfigMixin):
         organized into fixed-size blocks for efficient I/O and memory management.
         
         The blob is stored as a directory containing:
-        - .conf: Configuration file (dtype, shape, block_size)
-        - .stat: State file (length, block list)
+        - ``.conf``: Configuration file (dtype, shape, block_size)
+        - ``.stat``: State file (length, block list)
         - Block files: UUID-named memory-mapped tensor files
 
         Parameters
