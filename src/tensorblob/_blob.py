@@ -61,14 +61,14 @@ class TensorBlob(ConfigMixin):
         """
         modes = set(mode)
         if modes - set("raw+") or len(mode) > len(modes):
-            raise ValueError("Invalide mode: %s" % mode)
+            raise ValueError("Invalid mode: %s" % mode)
         if sum(c in "raw" for c in mode) != 1 or mode.count("+") > 1:
             raise ValueError("Must have exactly one of read/write/append mode and at most one plus: %s" % mode)
 
         filename = Path(filename).expanduser().resolve()
         if not filename.exists():
-            if "r" in modes:
-                raise FileNotFoundError("File not found: %r" % filename)
+            if "r" in modes or "a" in modes:
+                raise FileNotFoundError("Blob not found: %r" % filename)
             if dtype is None or shape is None:
                 raise ValueError("Arguments ``dtype`` and ``shape`` are required for new blob; got: %r and %r" % (dtype, shape))
             if isinstance(dtype, torch.dtype):
@@ -79,6 +79,11 @@ class TensorBlob(ConfigMixin):
             return cls(os.fspath(filename), dtype, shape, block_size, mode)
 
         return cls.from_config(save_directory=filename, runtime_kwargs={"mode": mode, "filename": os.fspath(filename)})
+
+    @classmethod
+    def apply_param_hooks(cls, d):
+        d["shape"] = tuple(d["shape"])
+        return d
 
     @register_to_config
     def __init__(
@@ -165,6 +170,8 @@ class TensorBlob(ConfigMixin):
             TensorBlobStates().dump(self.statespath)
 
     def _getblock(self, bd: str | int = -1) -> MemoryMappedTensor:
+        if not self._states.bds:
+            self._addblock()
         if isinstance(bd, int):
             bd = self._states.bds[bd]
         return self._memmap[bd]
@@ -241,11 +248,9 @@ class TensorBlob(ConfigMixin):
         return self.tell()
 
     def close(self) -> None:
-        if not self._closed:
-            try:
-                self.flush()
-            finally:
-                self._closed = True
+        if not self._closed and self._m_wr:
+            self.flush()
+        self._closed = True
 
     def flush(self) -> None:
         self._checkwritable()
