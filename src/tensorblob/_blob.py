@@ -39,25 +39,120 @@ class TensorBlob(ConfigMixin):
 
     @classmethod
     def open(cls, filename, mode="r", *, dtype=None, shape=None, block_size=8192):
-        r"""Open a TensorBlob with file-like interface.
+        r"""Open a TensorBlob with file-like interface for tensor storage.
+        
+        TensorBlob provides persistent, memory-mapped storage for large collections
+        of same-shaped tensors. It uses a block-based architecture where tensors are
+        organized into fixed-size blocks for efficient I/O and memory management.
+        
+        The blob is stored as a directory containing:
+        - .conf: Configuration file (dtype, shape, block_size)
+        - .stat: State file (length, block list)
+        - Block files: UUID-named memory-mapped tensor files
 
         Parameters
         ----------
-        filename : str
-            Path to the blob directory.
+        filename : str or Path
+            Directory path for blob storage. Supports tilde expansion (~) and
+            relative paths.
         mode : str, default="r"
-            Mode to open the blob.
-        dtype : str or torch.dtype, default=None
-            Data type of each tensor in the blob.
-        shape : tuple, default=None
-            Shape of each tensor in the blob.
+            File access mode ('r', 'w', 'a', 'r+', 'w+', 'a+'). See above for details.
+        dtype : str or torch.dtype, optional
+            Data type for tensors. Required for new blobs (modes 'w', 'w+').
+        shape : tuple of int or int, optional
+            Shape of individual tensors. Required for new blobs (modes 'w', 'w+').
         block_size : int, default=8192
-            Number of tensors per block.
+            Number of tensors per memory-mapped block file.
 
         Returns
         -------
         TensorBlob
-            The opened TensorBlob.
+            Opened blob object. Use with context manager for automatic cleanup.
+
+        Raises
+        ------
+        FileNotFoundError
+            If mode is 'r', 'r+', 'a', or 'a+' and blob doesn't exist.
+        ValueError
+            If creating new blob without dtype or shape, or if mode is invalid.
+        TypeError
+            If dtype is neither string nor torch.dtype.
+
+        Examples
+        --------
+        Creating a new blob and writing data:
+        
+        >>> import torch
+        >>> from tensorblob import TensorBlob
+        >>> 
+        >>> with TensorBlob.open("data/embeddings", "w", 
+        ...                       dtype="float32", shape=(768,)) as blob:
+        ...     embeddings = torch.randn(1000, 768)
+        ...     blob.write(embeddings)
+        ...     print(f"Wrote {len(blob)} tensors")
+        Wrote 1000 tensors
+        
+        Reading from existing blob:
+        
+        >>> with TensorBlob.open("data/embeddings", "r") as blob:
+        ...     all_data = blob.read()
+        ...     print(all_data.shape)
+        torch.Size([1000, 768])
+        
+        Appending to existing blob:
+        
+        >>> with TensorBlob.open("data/embeddings", "a") as blob:
+        ...     new_data = torch.randn(100, 768)
+        ...     blob.write(new_data)
+        ...     print(f"Total: {len(blob)}")
+        Total: 1100
+        
+        Read and update with r+ mode:
+        
+        >>> with TensorBlob.open("data/embeddings", "r+") as blob:
+        ...     first_10 = blob.read(size=10)
+        ...     blob.seek(5)
+        ...     blob.write(torch.ones(3, 768))  # Overwrite at position 5
+        
+        Custom block size for large tensors:
+        
+        >>> with TensorBlob.open("data/images", "w",
+        ...                       dtype=torch.float32,
+        ...                       shape=(3, 1024, 1024),
+        ...                       block_size=256) as blob:
+        ...     images = torch.randn(1000, 3, 1024, 1024)
+        ...     blob.write(images)
+
+        File Access Modes
+        -----------------
+        Similar to Python's built-in open(), supports the following modes:
+        
+        Basic modes:
+        - 'r'  : Read-only. Blob must exist. Position starts at beginning.
+        - 'w'  : Write-only. Creates new or truncates existing. Position at start.
+        - 'a'  : Append-only. Blob must exist. Position starts at end.
+                All writes go to end regardless of seek position.
+        
+        Update modes (with '+'):
+        - 'r+' : Read and write. Blob must exist. Position at start.
+                   Can overwrite existing data or extend at end.
+        - 'w+' : Read and write. Creates new or truncates existing. Position at start.
+        - 'a+' : Read and append. Blob must exist. Position at end.
+                   Reads allowed anywhere, writes always append to end.
+        
+        Data Type and Shape
+        -------------------
+        All tensors in a blob must have the same dtype and shape. These are
+        specified when creating a new blob (modes 'w', 'w+') and stored in
+        the configuration file. When opening existing blobs, dtype and shape
+        are loaded automatically.
+        
+        Supported dtypes: "float32", "float64", "int32", "int64", "bool", etc.
+        Can also use torch.dtype objects like torch.float32.
+        
+        Shape can be:
+        - Single integer: shape=10 creates 1D tensors of shape (10,)
+        - Tuple: shape=(3, 224, 224) creates 3D tensors
         """
         modes = set(mode)
         if modes - set("raw+") or len(mode) > len(modes):
