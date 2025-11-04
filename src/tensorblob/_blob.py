@@ -150,8 +150,8 @@ class TensorBlob(ConfigMixin):
 
     def __iter__(self) -> Iterator[torch.Tensor]:
         for i in range(self._pos, len(self)):
-            yield self[i]
             self._pos += 1
+            yield self[i]
 
     def _trunc(self) -> None:
         if os.path.exists(self.filename):
@@ -231,10 +231,8 @@ class TensorBlob(ConfigMixin):
         self._checkclosed()
         return self._pos
 
-    def seek(self, pos: int, whence: int = io.SEEK_SET) -> int:
+    def seek(self, pos: int = 0, whence: int = io.SEEK_SET) -> int:
         self._checkclosed()
-        if pos < 0:
-            raise ValueError("Negative seek position: %r" % pos)
         match whence:
             case io.SEEK_SET:
                 _pos = pos
@@ -256,12 +254,14 @@ class TensorBlob(ConfigMixin):
         self._checkwritable()
         self._states.dump(self.statespath)
 
-    def read(self, size: int | None = None, lazy: bool = False) -> torch.Tensor | Iterator[torch.Tensor]:
+    def read(self, size: int | None = None) -> torch.Tensor | None:
         self._checkreadable()
-        size = size or len(self) - self._pos    
-        if lazy:
-            return (self[i] for i in range(self._pos, self._pos + size))
-        raise NotImplementedError
+        end = min(self._pos + (size or len(self)), len(self))
+        ret = []
+        while self._pos < end:
+            ret.append(self[self._pos])
+            self._pos += 1
+        return torch.stack(ret) if ret else None
 
     def write(self, ts: torch.Tensor) -> int:
         self._checkwritable()
@@ -283,9 +283,8 @@ class TensorBlob(ConfigMixin):
         self._checkwritable()
         self.seek(whence=io.SEEK_END)
         if not maintain_order:
-            other.seek(whence=io.SEEK_SET)
-            for t in other.read(lazy=True):
-                self.write(t)
+            for i in range(len(other)):
+                self.write(other[i])
             if not copy:
                 raise NotImplementedError
             return
