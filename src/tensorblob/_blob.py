@@ -140,8 +140,8 @@ class TensorBlob(ConfigMixin):
             raise IndexError(
                 "Index out of bound: index <%d> >= length <%d>" % (index, len(self))
             )
-        count, offset = divmod(index, self.block_size)
-        return self._getblock(count)[offset].clone()
+        i, o = divmod(index, self.block_size)
+        return self._getblock(i)[o].clone()
 
     def __iter__(self) -> Iterator[torch.Tensor]:
         for i in range(self._pos, len(self)):
