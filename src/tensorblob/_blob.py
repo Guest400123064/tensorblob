@@ -56,7 +56,7 @@ class TensorBlob(ConfigMixin):
             Directory path for blob storage. Supports tilde expansion (~) and
             relative paths.
         mode : str, default="r"
-            File access mode ('r', 'w', 'a', 'r+', 'w+', 'a+'). See above for details.
+            File access mode ('r', 'w', 'a', 'r+', 'w+', 'a+'). See below for details.
         dtype : str or torch.dtype, optional
             Data type for tensors. Required for new blobs (modes 'w', 'w+').
         shape : tuple of int or int, optional
@@ -129,7 +129,8 @@ class TensorBlob(ConfigMixin):
         
         Basic modes:
         - 'r'  : Read-only. Blob must exist. Position starts at beginning.
-        - 'w'  : Write-only. Creates new or truncates existing. Position at start.
+        - 'w'  : Write-only. Creates new or truncates existing. Position at start. **If the blob already exists,
+                   truncation will ignore any other parameters supplied and rely on existing configuration.**
         - 'a'  : Append-only. Blob must exist. Position starts at end.
                 All writes go to end regardless of seek position.
         
