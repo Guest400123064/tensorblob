@@ -4,6 +4,7 @@ import io
 import os
 import uuid
 from dataclasses import dataclass, field
+from math import ceil
 from pathlib import Path
 from typing import Iterator
 
@@ -236,13 +237,36 @@ class TensorBlob(ConfigMixin):
     def __len__(self) -> int:
         return self._status.len
 
-    def __getitem__(self, index: int) -> torch.Tensor:
-        if index >= len(self):
-            raise IndexError(
-                "Index out of bound: index <%d> >= length <%d>" % (index, len(self))
-            )
-        i, o = divmod(index, self.block_size)
-        return self._getblock(i)[o].clone()
+    def __getitem__(self, idx: int | slice) -> torch.Tensor:
+        if not isinstance(idx, (int, slice)):
+            raise TypeError("Index must be int or slice, got %r!" % type(idx).__name__)
+        if isinstance(idx, int):
+            if idx >= len(self) or idx < -len(self):
+                raise IndexError("Index out of bounds: %r (length: %d)" % (idx, len(self)))
+            i, o = divmod(idx, self.block_size)
+            return self._getblock(i)[o].clone()
+
+        # If unit step, we can simply load all blocks in the middle without calculating the indices
+        # except for the first and last blocks.
+        # 
+        # TODO: The current implementation for non-unit step is quit inefficient. 
+        bgn, end, stp = idx.indices(len(self))
+        if stp != 1:
+            return torch.stack([self[i] for i in range(bgn, end, stp)])
+
+        i_bgn, o_bgn = divmod(bgn, self.block_size)
+        i_end, o_end = divmod(end, self.block_size)
+        if i_bgn == i_end:
+            return self._getblock(i_bgn)[o_bgn:o_end].clone()
+
+        ret = [self._getblock(i_bgn)[o_bgn:]]
+        ret.extend(map(self._getblock, range(i_bgn + 1, i_end)))
+        if i_end >= len(self._status.bds):
+            assert o_end == 0
+            return torch.cat(ret, dim=0)
+
+        ret.append(self._getblock(i_end)[:o_end])
+        return torch.cat(ret, dim=0)
 
     def __iter__(self) -> Iterator[torch.Tensor]:
         for i in range(self._pos, len(self)):
@@ -254,7 +278,7 @@ class TensorBlob(ConfigMixin):
             try:
                 st = TensorBlobStatus.load(self.statuspath)
             except FileNotFoundError as exc:
-                raise FileNotFoundError("status file missing for blob at %r; file corrupted!" % self.statuspath) from exc
+                raise FileNotFoundError("Status file missing for blob at %r; file corrupted!" % self.statuspath) from exc
             for bd in st.bds:
                 os.remove(os.path.join(self.filename, bd))
         self.save_config(save_directory=self.filename, overwrite=True)
@@ -373,15 +397,24 @@ class TensorBlob(ConfigMixin):
             self._pos += 1
         return len(ts)
 
+    def truncate(self, pos: int | None = None) -> int:
+        self._checkwritable()
+        self.seek(pos or self.tell())
+        brk = ceil(self.tell() / self.block_size)
+        for bd in self._status.bds[brk:]:
+            os.remove(os.path.join(self.filename, bd))
+        self._status.bds = self._status.bds[:brk]
+        self._status.len = self.tell()
+        self.flush()
+        return self.tell()
+
     def extend(
-        self, other: TensorBlob, copy: bool = True, maintain_order: bool = False
+        self, other: TensorBlob, maintain_order: bool = False
     ) -> None:
         self._checkwritable()
         self.seek(whence=io.SEEK_END)
         if not maintain_order:
             for i in range(len(other)):
                 self.write(other[i])
-            if not copy:
-                raise NotImplementedError
             return
         raise NotImplementedError
