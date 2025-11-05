@@ -422,7 +422,7 @@ class TestMultipleBlocks:
             data = torch.randn(num_tensors, 5)
             blob.write(data)
             assert len(blob) == num_tensors
-            assert len(blob._states.bds) == 3  # Should have 3 blocks
+            assert len(blob._status.bds) == 3  # Should have 3 blocks
     
     def test_read_across_blocks(self, temp_blob_dir):
         """Test reading data that spans multiple blocks."""

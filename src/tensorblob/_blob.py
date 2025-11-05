@@ -14,7 +14,7 @@ from tensordict import MemoryMappedTensor
 
 
 @dataclass(slots=True, kw_only=True)
-class TensorBlobStates:
+class TensorBlobStatus:
     len: int = 0
     bds: list[str] = field(default_factory=list)
 
@@ -33,7 +33,7 @@ class TensorBlob(ConfigMixin):
     _m_wr = False
     _m_ap = False
 
-    states_name = ".stat"
+    status_name = ".stat"
     config_name = ".conf"
     ignore_for_config = ["filename", "mode"]
 
@@ -213,15 +213,15 @@ class TensorBlob(ConfigMixin):
                 self._m_ap = True
                 self._create()
 
-        self._loadstates()
+        self._loadstatus()
 
     @property
     def configpath(self) -> str:
         return os.path.join(self.filename, self.config_name)
 
     @property
-    def statespath(self) -> str:
-        return os.path.join(self.filename, self.states_name)
+    def statuspath(self) -> str:
+        return os.path.join(self.filename, self.status_name)
 
     @property
     def closed(self) -> bool:
@@ -234,7 +234,7 @@ class TensorBlob(ConfigMixin):
         self.close()
 
     def __len__(self) -> int:
-        return self._states.len
+        return self._status.len
 
     def __getitem__(self, index: int) -> torch.Tensor:
         if index >= len(self):
@@ -252,31 +252,31 @@ class TensorBlob(ConfigMixin):
     def _trunc(self) -> None:
         if os.path.exists(self.filename):
             try:
-                st = TensorBlobStates.load(self.statespath)
+                st = TensorBlobStatus.load(self.statuspath)
             except FileNotFoundError as exc:
-                raise FileNotFoundError("States file missing for blob at %r; file corrupted!" % self.statespath) from exc
+                raise FileNotFoundError("status file missing for blob at %r; file corrupted!" % self.statuspath) from exc
             for bd in st.bds:
                 os.remove(os.path.join(self.filename, bd))
         self.save_config(save_directory=self.filename, overwrite=True)
-        TensorBlobStates().dump(self.statespath)
+        TensorBlobStatus().dump(self.statuspath)
 
     def _create(self) -> None:
         if not os.path.exists(self.filename):
             self.save_config(save_directory=self.filename)
-            TensorBlobStates().dump(self.statespath)
+            TensorBlobStatus().dump(self.statuspath)
 
     def _getblock(self, bd: str | int = -1) -> MemoryMappedTensor:
-        if not self._states.bds:
+        if not self._status.bds:
             self._addblock()
         if isinstance(bd, int):
-            bd = self._states.bds[bd]
+            bd = self._status.bds[bd]
         return self._memmap[bd]
 
     def _isfull(self) -> bool:
         return (not len(self) % self.block_size) and bool(len(self))
 
     def _addblock(self) -> MemoryMappedTensor:
-        if self._states.bds and not self._isfull():
+        if self._status.bds and not self._isfull():
             raise RuntimeError(
                 "Attempt to create a new block when working block "
                 "is not full: length <%d> < capacity <%d>."
@@ -289,25 +289,25 @@ class TensorBlob(ConfigMixin):
             dtype=getattr(torch, self.dtype),
             filename=os.path.join(self.filename, name),
         )
-        self._states.bds.append(name)
+        self._status.bds.append(name)
         self._memmap[name] = mmap
         return mmap
 
-    def _loadstates(self) -> None:
+    def _loadstatus(self) -> None:
         try:
-            self._states = TensorBlobStates.load(self.statespath)
+            self._status = TensorBlobStatus.load(self.statuspath)
             self._memmap = {
                 name: MemoryMappedTensor.from_filename(
                     os.path.join(self.filename, name),
                     dtype=getattr(torch, self.dtype),
                     shape=(self.block_size, *self.shape),
                 )
-                for name in self._states.bds
+                for name in self._status.bds
             }
             if self._m_ap:
                 self._pos = len(self)
         except FileNotFoundError as exc:
-            raise FileNotFoundError("States file missing for blob at %r; file corrupted!" % self.statespath) from exc
+            raise FileNotFoundError("status file missing for blob at %r; file corrupted!" % self.statuspath) from exc
 
     def _checkclosed(self) -> None:
         if self._closed:
@@ -348,7 +348,7 @@ class TensorBlob(ConfigMixin):
 
     def flush(self) -> None:
         self._checkwritable()
-        self._states.dump(self.statespath)
+        self._status.dump(self.statuspath)
 
     def read(self, size: int | None = None) -> torch.Tensor | None:
         self._checkreadable()
@@ -369,7 +369,7 @@ class TensorBlob(ConfigMixin):
                 self._addblock()
             i, o = divmod(self._pos, self.block_size)
             self._getblock(i)[o] = t
-            self._states.len += self._pos >= len(self)
+            self._status.len += self._pos >= len(self)
             self._pos += 1
         return len(ts)
 
