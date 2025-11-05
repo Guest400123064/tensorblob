@@ -40,9 +40,6 @@ jobs:
     - name: Install dependencies
       run: uv sync --group dev
 
-    - name: Run tests
-      run: uv run coverage run -m pytest tests
-
     - name: Generate coverage report
       run: uv run pytest --cov=tensorblob --junitxml=junit.xml -o junit_family=legacy
 
