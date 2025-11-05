@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import uuid
 from dataclasses import dataclass, field
 from math import ceil
@@ -403,18 +404,50 @@ class TensorBlob(ConfigMixin):
         brk = ceil(self.tell() / self.block_size)
         for bd in self._status.bds[brk:]:
             os.remove(os.path.join(self.filename, bd))
+            self._memmap.pop(bd)
         self._status.bds = self._status.bds[:brk]
         self._status.len = self.tell()
         self.flush()
         return self.tell()
 
-    def extend(
-        self, other: TensorBlob, maintain_order: bool = False
-    ) -> None:
+    def extend(self, other: TensorBlob, maintain_order: bool = False) -> None:
+        if self.dtype != other.dtype or self.shape != other.shape:
+            raise ValueError("Blob data types and shapes must match to extend blobs!")
+
         self._checkwritable()
         self.seek(whence=io.SEEK_END)
-        if not maintain_order:
+        if maintain_order:
             for i in range(len(other)):
                 self.write(other[i])
             return
-        raise NotImplementedError
+
+        # If order is not important, we can simply copy over the complete blocks from
+        # the other blob and merge incomplete blocks.
+        if self.block_size != other.block_size:
+            raise ValueError("Block sizes must match to extend blobs in non-order-preserving mode!")
+
+        comb = []
+        sbrk = len(self) // self.block_size * self.block_size
+        if sbrk < len(self):
+            comb.append(self[sbrk:])
+        obrk = len(other) // other.block_size * other.block_size
+        if obrk < len(other):
+            comb.append(other[obrk:])
+
+        # TODO: We are directly accessing internal data structures of the other blob here.
+        self.truncate(sbrk)
+        for obd in other._status.bds[:len(other) // other.block_size]:
+            sbd = str(uuid.uuid4())
+            shutil.copy(os.path.join(other.filename, obd), os.path.join(self.filename, sbd))
+            self._status.bds.append(sbd)
+            self._status.len += self.block_size
+            self._memmap[sbd] = MemoryMappedTensor.from_filename(
+                os.path.join(self.filename, sbd),
+                dtype=getattr(torch, self.dtype),
+                shape=(self.block_size, *self.shape),
+            )
+
+        self.seek(whence=io.SEEK_END)
+        if comb:
+            self.write(torch.cat(comb, dim=0))
+        self.flush()
