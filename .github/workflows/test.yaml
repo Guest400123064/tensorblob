@@ -44,10 +44,10 @@ jobs:
       run: uv run coverage run -m pytest tests
 
     - name: Generate coverage report
-      run: uv run pytest --cov-report=xml --cov=tensorblob
+      run: uv run pytest --cov=tensorblob --junitxml=junit.xml -o junit_family=legacy
 
-    - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v5
+    - name: Upload test results to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/test-results-action@v1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        slug: Guest400123064/tensorblob
