@@ -405,7 +405,7 @@ class TestEdgeCases:
             with TensorBlob.open(temp_blob_dir, "w", dtype="float32", shape=(10,), block_size=0) as blob:
                 # If it doesn't fail immediately, try writing
                 blob.write(torch.randn(10))
-        except (ValueError, RuntimeError, ZeroDivisionError) as e:
+        except (ValueError, RuntimeError, ZeroDivisionError):
             # Expected - zero block size should cause issues
             pass
     
@@ -413,9 +413,9 @@ class TestEdgeCases:
         """Test creating blob with negative block_size (should probably fail)."""
         # Negative block size doesn't make sense
         try:
-            with TensorBlob.open(temp_blob_dir, "w", dtype="float32", shape=(10,), block_size=-100) as blob:
+            with TensorBlob.open(temp_blob_dir, "w", dtype="float32", shape=(10,), block_size=-100) as _:
                 pass
-        except (ValueError, RuntimeError) as e:
+        except (ValueError, RuntimeError):
             # Expected
             pass
     

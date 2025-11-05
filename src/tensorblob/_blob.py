@@ -244,7 +244,7 @@ class TensorBlob(ConfigMixin):
         if isinstance(idx, int):
             if idx >= len(self) or idx < -len(self):
                 raise IndexError("Index out of bounds: %r (length: %d)" % (idx, len(self)))
-            i, o = divmod(idx, self.block_size)
+            i, o = divmod(idx + len(self) if idx < 0 else idx, self.block_size)
             return self._getblock(i)[o].clone()
 
         # If unit step, we can simply load all blocks in the middle without calculating the indices
