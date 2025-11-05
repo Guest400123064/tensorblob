@@ -2,7 +2,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![test](https://github.com/Guest400123064/tensorblob/actions/workflows/test.yaml/badge.svg)](https://github.com/Guest400123064/tensorblob/actions/workflows/test.yaml)
 [![codecov](https://codecov.io/gh/Guest400123064/tensorblob/branch/main/graph/badge.svg?token=K00BM34OCO)](https://codecov.io/gh/Guest400123064/tensorblob)
-<!-- [![PyPI](https://img.shields.io/pypi/v/just-config-mixin)](https://pypi.org/project/just-config-mixin/) -->
+[![PyPI](https://img.shields.io/pypi/v/tensorblob)](https://pypi.org/project/tensorblob/)
 
 # tensorblob
 
@@ -15,6 +15,12 @@ A lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs.
 - ⚡ **Dynamic-sized**: No need to specify the total number of tensors upfront
 
 ## Installation
+
+From PyPI:
+
+```bash
+pip install tensorblob
+```
 
 If you are interested in the experimental (i.e., unstable and undertested) version, you can install it from GitHub:
 
