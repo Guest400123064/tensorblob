@@ -32,6 +32,8 @@ pip install git+https://github.com/Guest400123064/tensorblob.git
 
 ### Quick Start
 
+The example below shows how to create a new storage for a collection of randomly generated fake embeddings, and how to access them by index. Since the storage is memory-mapped, no need to read all tensors into memory; just access them by index.
+
 ```python
 import torch
 from tensorblob import TensorBlob
@@ -43,63 +45,59 @@ with TensorBlob.open("embeddings.blob", "w", dtype="float32", shape=768) as blob
     blob.write(torch.randn(100_000, 768))
     print(f"Wrote {len(blob)} embeddings")
 
-# No need to read all tensors into memory; just access them by index
+# No need to specify the configurations again after creation
 with TensorBlob.open("embeddings.blob", "r") as blob:
     e1 = blob[42]
-    e2 = blob[-1]
-    print(f"Similarity: {torch.cosine_similarity(e1, e2, dim=0)}")
+    e2 = blob[-1:16384:-12345]
+    print(f"Similarity: {torch.cosine_similarity(e1, e2)}")
 ```
 
 ### Processing Large Datasets
 
-Store and process datasets larger than RAM using memory mapping:
+Store and preprocess datasets larger than RAM using memory mapping can be useful to accelerate the training process by reducing the time spent on data loading and transformation.
 
 ```python
-# Store a large image dataset
-with TensorBlob.open("data/images.blob", "w",
-                      dtype=torch.float32,
-                      shape=(3, 224, 224),
-                      block_size=512) as blob:
-    for batch in data_loader:
-        # Process and write batch by batch
-        processed = preprocess(batch)
-        blob.write(processed)
+with TensorBlob.open("data/images.blob", "w", dtype="float32", shape=(3, 224, 224)) as blob:
+    for image_batch in data_loader:
+        blob.write(preprocess(image_batch))
 
-# Iterate through dataset without loading everything into memory
 with TensorBlob.open("data/images.blob", "r") as blob:
     for image in blob:
-        # Process one image at a time
-        result = model(image.unsqueeze(0))
+        result = model(image)
 ```
 
 ### Incremental Data Collection
 
-Append new data to existing blobs:
+Append new data to existing blobs can be useful with streaming data collection.
 
 ```python
-# Initial data collection
-with TensorBlob.open("logs/activations.blob", "w",
-                      dtype="float32", shape=(1024,)) as blob:
-    blob.write(initial_activations)
+with TensorBlob.open("positions.blob", "w", dtype="float32", shape=3) as blob:
+    blob.write(initial_position)
 
-# Later: append more data
-with TensorBlob.open("logs/activations.blob", "a") as blob:
-    blob.write(new_activations)
-    print(f"Total activations: {len(blob)}")
+# Later: append more data by opening the blob in append mode
+with TensorBlob.open("positions.blob", "a") as blob:
+    for pos in trajectory_queue.get():
+        blob.write(pos)
+    print(f"Total trajectory recorded: {len(blob)}")
 ```
 
-### Random Access and Updates
+### Random Access and Updates with File-Like APIs
 
-Read and modify specific tensors:
+Read and modify specific tensors starting from a specific position.
 
 ```python
+import io
+
+
 with TensorBlob.open("data/features.blob", "r+") as blob:
-    # Read specific range
     blob.seek(1000)
+    print(f"Current position: {blob.tell()}")
+
     batch = blob.read(size=100)
-    
-    # Update specific positions
-    blob.seek(500)
+    print(f"Read {batch.shape} tensors")
+
+    # Update specific positions, whence is also supported
+    blob.seek(-500, whence=io.SEEK_END)
     blob.write(updated_features)
     
     # Append new data
@@ -107,65 +105,22 @@ with TensorBlob.open("data/features.blob", "r+") as blob:
     blob.write(additional_features)
 ```
 
-### File-Like Operations
+### Extend and Truncate
 
-Use familiar file-like APIs:
-
-```python
-with TensorBlob.open("data/tensors.blob", "r") as blob:
-    # Get current position
-    pos = blob.tell()
-    
-    # Seek to different positions
-    blob.seek(0)           # Start
-    blob.seek(100)         # Absolute position
-    blob.seek(10, 1)       # Relative: +10 from current
-    blob.seek(-50, 2)      # From end: 50 back from end
-    
-    # Iterate from current position
-    for tensor in blob:
-        process(tensor)
-        if should_stop():
-            break
-    
-    # Index access
-    first = blob[0]
-    last = blob[-1]  # Not supported yet, use blob[len(blob)-1]
-```
-
-### Real-World Example: Training Data Pipeline
+Extend the blob with another blob or truncate the blob to a specific position. Extension could be useful if we want to merge two blobs into one, e.g., results from two different processes. Note that extension operation does not delete the original data.
 
 ```python
-# Setup: Create blob from raw data
-def create_training_blob(raw_data_path, blob_path):
-    with TensorBlob.open(blob_path, "w",
-                          dtype="float32", 
-                          shape=(512,),
-                          block_size=4096) as blob:
-        for file in sorted(Path(raw_data_path).glob("*.pt")):
-            data = torch.load(file)
-            blob.write(data)
-    print(f"Created blob with {len(blob)} samples")
+with TensorBlob.open("data/features.blob", "a") as blob:
+    blob.extend(other_blob)
 
-# Training: Efficient data loading
-class BlobDataset(torch.utils.data.IterableDataset):
-    def __init__(self, blob_path):
-        self.blob_path = blob_path
-    
-    def __iter__(self):
-        # Each worker gets its own blob instance
-        with TensorBlob.open(self.blob_path, "r") as blob:
-            for tensor in blob:
-                yield tensor
+# Extension without maintaining the order is faster
+with TensorBlob.open("data/features.blob", "r+") as blob:
+    blob.extend(other_blob, maintain_order=False)
 
-# Use in training loop
-dataset = BlobDataset("data/train.blob")
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=32)
-
-for batch in dataloader:
-    loss = train_step(batch)
+with TensorBlob.open("data/features.blob", "r+") as blob:
+    blob.truncate(1000)
+    print(f"Truncated to {len(blob)} tensors")
 ```
-
 
 ## Contributing
 
