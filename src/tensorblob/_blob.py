@@ -375,14 +375,12 @@ class TensorBlob(ConfigMixin):
         self._checkwritable()
         self._status.dump(self.statuspath)
 
-    def read(self, size: int | None = None) -> torch.Tensor | None:
+    def read(self, size: int | None = None) -> torch.Tensor:
         self._checkreadable()
         end = min(self._pos + (size or len(self)), len(self))
-        ret = []
-        while self._pos < end:
-            ret.append(self[self._pos])
-            self._pos += 1
-        return torch.stack(ret) if ret else None
+        ret = self[self._pos:end]
+        self.seek(end)
+        return ret
 
     def write(self, ts: torch.Tensor) -> int:
         self._checkwritable()
@@ -403,8 +401,7 @@ class TensorBlob(ConfigMixin):
         self.seek(pos or self.tell())
         brk = ceil(self.tell() / self.block_size)
         for bd in self._status.bds[brk:]:
-            os.remove(os.path.join(self.filename, bd))
-            self._memmap.pop(bd)
+            os.remove(self._memmap.pop(bd).filename)
         self._status.bds = self._status.bds[:brk]
         self._status.len = self.tell()
         self.flush()

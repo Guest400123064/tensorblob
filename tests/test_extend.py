@@ -45,7 +45,7 @@ class TestTruncateBasic:
             blob.truncate(0)
             assert len(blob) == 0
             result = blob.read()
-            assert result is None
+            assert result.size(0) == 0
     
     def test_truncate_then_write(self, temp_blob_dir):
         """Test writing after truncation."""

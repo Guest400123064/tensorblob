@@ -92,7 +92,7 @@ class TestBasicRead:
         
         with TensorBlob.open(temp_blob_dir, "r") as blob:
             result = blob.read()
-            assert result is None
+            assert result.size(0) == 0
 
 
 class TestIndexing:
