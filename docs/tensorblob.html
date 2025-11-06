@@ -220,7 +220,6 @@ tensorblob    </h1>
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">io</span>
 
-
 <span class="k">with</span> <span class="n"><a href="#TensorBlob.open">TensorBlob.open</a></span><span class="p">(</span><span class="s2">&quot;data/features.blob&quot;</span><span class="p">,</span> <span class="s2">&quot;r+&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">blob</span><span class="p">:</span>
     <span class="n">blob</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">1000</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Current position: </span><span class="si">{</span><span class="n">blob</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>

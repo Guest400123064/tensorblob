@@ -88,7 +88,6 @@ Read and modify specific tensors starting from a specific position.
 ```python
 import io
 
-
 with TensorBlob.open("data/features.blob", "r+") as blob:
     blob.seek(1000)
     print(f"Current position: {blob.tell()}")
