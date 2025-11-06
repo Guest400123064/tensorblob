@@ -1,6 +1,6 @@
 [project]
 name = "tensorblob"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "bpython>=0.26",
+    "bump-my-version>=0.30.0",
     "pdoc>=16.0.0",
     "pre-commit>=4.3.0",
     "pytest>=8.4.2",
@@ -25,5 +26,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.9.7,<0.10.0"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/tensorblob/__init__.py"
