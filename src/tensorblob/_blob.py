@@ -5,6 +5,7 @@ import os
 import shutil
 import uuid
 from dataclasses import dataclass, field
+from itertools import groupby
 from math import ceil
 from pathlib import Path
 from typing import Iterator
@@ -42,11 +43,11 @@ class TensorBlob(ConfigMixin):
     @classmethod
     def open(cls, filename, mode="r", *, dtype=None, shape=None, block_size=8192):
         r"""Open a TensorBlob with file-like interface for tensor storage.
-        
+
         TensorBlob provides persistent, memory-mapped storage for large collections
         of same-shaped tensors. It uses a block-based architecture where tensors are
         organized into fixed-size blocks for efficient I/O and memory management.
-        
+
         The blob is stored as a directory containing:
         - ``.conf``: Configuration file (dtype, shape, block_size)
         - ``.stat``: State file (length, block list)
@@ -83,41 +84,41 @@ class TensorBlob(ConfigMixin):
         Examples
         --------
         Creating a new blob and writing data:
-        
+
         >>> import torch
         >>> from tensorblob import TensorBlob
-        >>> 
-        >>> with TensorBlob.open("data/embeddings", "w", 
+        >>>
+        >>> with TensorBlob.open("data/embeddings", "w",
         ...                       dtype="float32", shape=(768,)) as blob:
         ...     embeddings = torch.randn(1000, 768)
         ...     blob.write(embeddings)
         ...     print(f"Wrote {len(blob)} tensors")
         Wrote 1000 tensors
-        
+
         Reading from existing blob:
-        
+
         >>> with TensorBlob.open("data/embeddings", "r") as blob:
         ...     all_data = blob.read()
         ...     print(all_data.shape)
         torch.Size([1000, 768])
-        
+
         Appending to existing blob:
-        
+
         >>> with TensorBlob.open("data/embeddings", "a") as blob:
         ...     new_data = torch.randn(100, 768)
         ...     blob.write(new_data)
         ...     print(f"Total: {len(blob)}")
         Total: 1100
-        
+
         Read and update with r+ mode:
-        
+
         >>> with TensorBlob.open("data/embeddings", "r+") as blob:
         ...     first_10 = blob.read(size=10)
         ...     blob.seek(5)
         ...     blob.write(torch.ones(3, 768))  # Overwrite at position 5
-        
+
         Custom block size for large tensors:
-        
+
         >>> with TensorBlob.open("data/images", "w",
         ...                       dtype=torch.float32,
         ...                       shape=(3, 1024, 1024),
@@ -128,31 +129,31 @@ class TensorBlob(ConfigMixin):
         File Access Modes
         -----------------
         Similar to Python's built-in open(), supports the following modes:
-        
+
         Basic modes:
         - 'r'  : Read-only. Blob must exist. Position starts at beginning.
         - 'w'  : Write-only. Creates new or truncates existing. Position at start. **If the blob already exists,
                    truncation will ignore any other parameters supplied and rely on existing configuration.**
         - 'a'  : Append-only. Blob must exist. Position starts at end.
                 All writes go to end regardless of seek position.
-        
+
         Update modes (with '+'):
         - 'r+' : Read and write. Blob must exist. Position at start.
                    Can overwrite existing data or extend at end.
         - 'w+' : Read and write. Creates new or truncates existing. Position at start.
         - 'a+' : Read and append. Blob must exist. Position at end.
                    Reads allowed anywhere, writes always append to end.
-        
+
         Data Type and Shape
         -------------------
         All tensors in a blob must have the same dtype and shape. These are
         specified when creating a new blob (modes 'w', 'w+') and stored in
         the configuration file. When opening existing blobs, dtype and shape
         are loaded automatically.
-        
+
         Supported dtypes: "float32", "float64", "int32", "int64", "bool", etc.
         Can also use torch.dtype objects like torch.float32.
-        
+
         Shape can be:
         - Single integer: shape=10 creates 1D tensors of shape (10,)
         - Tuple: shape=(3, 224, 224) creates 3D tensors
@@ -161,22 +162,33 @@ class TensorBlob(ConfigMixin):
         if modes - set("raw+") or len(mode) > len(modes):
             raise ValueError("Invalid mode: %s" % mode)
         if sum(c in "raw" for c in mode) != 1 or mode.count("+") > 1:
-            raise ValueError("Must have exactly one of read/write/append mode and at most one plus: %s" % mode)
+            raise ValueError(
+                "Must have exactly one of read/write/append mode and at most one plus: %s"
+                % mode
+            )
 
         filename = Path(filename).expanduser().resolve()
         if not filename.exists():
             if "r" in modes or "a" in modes:
                 raise FileNotFoundError("Blob not found: %r" % filename)
             if dtype is None or shape is None:
-                raise ValueError("Arguments ``dtype`` and ``shape`` are required for new blob; got: %r and %r" % (dtype, shape))
+                raise ValueError(
+                    "Arguments ``dtype`` and ``shape`` are required for new blob; got: %r and %r"
+                    % (dtype, shape)
+                )
             if isinstance(dtype, torch.dtype):
                 dtype = str(dtype).split(".").pop()
             elif not isinstance(dtype, str):
-                raise TypeError("dtype must be str or torch.dtype, got %r" % type(dtype).__name__)
+                raise TypeError(
+                    "dtype must be str or torch.dtype, got %r" % type(dtype).__name__
+                )
             shape = (shape,) if isinstance(shape, int) else tuple(shape)
             return cls(os.fspath(filename), dtype, shape, block_size, mode)
 
-        return cls.from_config(save_directory=filename, runtime_kwargs={"mode": mode, "filename": os.fspath(filename)})
+        return cls.from_config(
+            save_directory=filename,
+            runtime_kwargs={"mode": mode, "filename": os.fspath(filename)},
+        )
 
     @classmethod
     def apply_param_hooks(cls, d):
@@ -243,37 +255,24 @@ class TensorBlob(ConfigMixin):
             raise TypeError("Index must be int or slice, got %r!" % type(idx).__name__)
         if isinstance(idx, int):
             if idx >= len(self) or idx < -len(self):
-                raise IndexError("Index out of bounds: %r (length: %d)" % (idx, len(self)))
+                raise IndexError(
+                    "Index out of bounds: %r (length: %d)" % (idx, len(self))
+                )
             i, o = divmod(idx + len(self) if idx < 0 else idx, self.block_size)
             return self._getblock(i)[o].clone()
 
-        bgn, end, stp = idx.indices(len(self))
-        if bgn < 0:
-            bgn += len(self)
-        if end < 0:
-            end += len(self)
-
-        # If unit step, we can simply load all blocks in the middle without calculating the indices
-        # except for the first and last blocks.
-        # 
-        # TODO: The current implementation for non-unit step is quit inefficient. 
-        if stp != 1:
-            return torch.stack([self[i] for i in range(bgn, end, stp)])
-        if bgn >= end or bgn >= len(self):
+        # Although the current implementation may not be efficient, it is very easy to
+        # understand and debug. More efficient implementation requires much more complex
+        # edge case handling and is error prone. Also, I think the primary cost here is
+        # still the I/O operations, not the Python code.
+        ret = [
+            self._getblock(bd)[[i % self.block_size for i in _is]]
+            for bd, _is in groupby(
+                range(*idx.indices(len(self))), key=lambda i: i // self.block_size
+            )
+        ]
+        if not ret:
             return torch.empty(0, *self.shape, dtype=getattr(torch, self.dtype))
-
-        i_bgn, o_bgn = divmod(bgn, self.block_size)
-        i_end, o_end = divmod(end, self.block_size)
-        if i_bgn == i_end:
-            return self._getblock(i_bgn)[o_bgn:o_end].clone()
-
-        ret = [self._getblock(i_bgn)[o_bgn:]]
-        ret.extend(map(self._getblock, range(i_bgn + 1, i_end)))
-        if i_end >= len(self._status.bds):
-            assert o_end == 0
-            return torch.cat(ret, dim=0)
-
-        ret.append(self._getblock(i_end)[:o_end])
         return torch.cat(ret, dim=0)
 
     def __iter__(self) -> Iterator[torch.Tensor]:
@@ -286,7 +285,10 @@ class TensorBlob(ConfigMixin):
             try:
                 st = TensorBlobStatus.load(self.statuspath)
             except FileNotFoundError as exc:
-                raise FileNotFoundError("Status file missing for blob at %r; file corrupted!" % self.statuspath) from exc
+                raise FileNotFoundError(
+                    "Status file missing for blob at %r; file corrupted!"
+                    % self.statuspath
+                ) from exc
             for bd in st.bds:
                 os.remove(os.path.join(self.filename, bd))
         self.save_config(save_directory=self.filename, overwrite=True)
@@ -339,7 +341,9 @@ class TensorBlob(ConfigMixin):
             if self._m_ap:
                 self._pos = len(self)
         except FileNotFoundError as exc:
-            raise FileNotFoundError("status file missing for blob at %r; file corrupted!" % self.statuspath) from exc
+            raise FileNotFoundError(
+                "status file missing for blob at %r; file corrupted!" % self.statuspath
+            ) from exc
 
     def _checkclosed(self) -> None:
         if self._closed:
@@ -385,7 +389,7 @@ class TensorBlob(ConfigMixin):
     def read(self, size: int | None = None) -> torch.Tensor:
         self._checkreadable()
         end = min(self._pos + (size or len(self)), len(self))
-        ret = self[self._pos:end]
+        ret = self[self._pos : end]
         self.seek(end)
         return ret
 
@@ -428,7 +432,9 @@ class TensorBlob(ConfigMixin):
         # If order is not important, we can simply copy over the complete blocks from
         # the other blob and merge incomplete blocks.
         if self.block_size != other.block_size:
-            raise ValueError("Block sizes must match to extend blobs in non-order-preserving mode!")
+            raise ValueError(
+                "Block sizes must match to extend blobs in non-order-preserving mode!"
+            )
 
         comb = []
         sbrk = len(self) // self.block_size * self.block_size
@@ -440,9 +446,11 @@ class TensorBlob(ConfigMixin):
 
         # TODO: We are directly accessing internal data structures of the other blob here.
         self.truncate(sbrk)
-        for obd in other._status.bds[:len(other) // other.block_size]:
+        for obd in other._status.bds[: len(other) // other.block_size]:
             sbd = str(uuid.uuid4())
-            shutil.copy(os.path.join(other.filename, obd), os.path.join(self.filename, sbd))
+            shutil.copy(
+                os.path.join(other.filename, obd), os.path.join(self.filename, sbd)
+            )
             self._status.bds.append(sbd)
             self._status.len += self.block_size
             self._memmap[sbd] = MemoryMappedTensor.from_filename(
