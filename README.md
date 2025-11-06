@@ -6,12 +6,12 @@
 
 # tensorblob
 
-A lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs.
+A lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs, while also supporting integer indexing and slicing, built with `MemoryMappedTensor` from [`tensordict`](https://github.com/pytorch/tensordict).
 
 ## Features
 
 - 🔗 **Memory-mapped storage**: Efficient storage of large collections of same-shaped tensors
-- 💾 **File-like APIs**: Read, write, and seek like a file
+- 💾 **File-like APIs**: Read, write, and seek like a file, while also supporting integer indexing and slicing
 - ⚡ **Dynamic-sized**: No need to specify the total number of tensors upfront
 
 ## Installation
@@ -36,17 +36,18 @@ pip install git+https://github.com/Guest400123064/tensorblob.git
 import torch
 from tensorblob import TensorBlob
 
-# Create a new blob and write tensors
-with TensorBlob.open("data/embeddings.blob", "w", 
-                      dtype="float32", shape=(768,)) as blob:
-    embeddings = torch.randn(10000, 768)
-    blob.write(embeddings)
+
+# Create a new storage for a collection of randomly generated fake embeddings;
+# need to specify the data type and shape of each tensor for creation
+with TensorBlob.open("embeddings.blob", "w", dtype="float32", shape=768) as blob:
+    blob.write(torch.randn(100_000, 768))
     print(f"Wrote {len(blob)} embeddings")
 
-# Read all tensors back
-with TensorBlob.open("data/embeddings.blob", "r") as blob:
-    all_embeddings = blob.read()
-    print(f"Read shape: {all_embeddings.shape}")  # torch.Size([10000, 768])
+# No need to read all tensors into memory; just access them by index
+with TensorBlob.open("embeddings.blob", "r") as blob:
+    e1 = blob[42]
+    e2 = blob[-1]
+    print(f"Similarity: {torch.cosine_similarity(e1, e2, dim=0)}")
 ```
 
 ### Processing Large Datasets

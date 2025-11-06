@@ -247,13 +247,20 @@ class TensorBlob(ConfigMixin):
             i, o = divmod(idx + len(self) if idx < 0 else idx, self.block_size)
             return self._getblock(i)[o].clone()
 
+        bgn, end, stp = idx.indices(len(self))
+        if bgn < 0:
+            bgn += len(self)
+        if end < 0:
+            end += len(self)
+
         # If unit step, we can simply load all blocks in the middle without calculating the indices
         # except for the first and last blocks.
         # 
         # TODO: The current implementation for non-unit step is quit inefficient. 
-        bgn, end, stp = idx.indices(len(self))
         if stp != 1:
             return torch.stack([self[i] for i in range(bgn, end, stp)])
+        if bgn >= end or bgn >= len(self):
+            return torch.empty(0, *self.shape, dtype=getattr(torch, self.dtype))
 
         i_bgn, o_bgn = divmod(bgn, self.block_size)
         i_end, o_end = divmod(end, self.block_size)
