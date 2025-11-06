@@ -13,6 +13,7 @@ A lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs, 
 - 🔗 **Memory-mapped storage**: Efficient storage of large collections of same-shaped tensors
 - 💾 **File-like APIs**: Read, write, and seek like a file, while also supporting integer indexing and slicing
 - ⚡ **Dynamic-sized**: No need to specify the total number of tensors upfront
+- 🔄 **Extend and truncate**: Extend the blob with another blob or truncate the blob to a specific position
 
 ## Installation
 
@@ -37,7 +38,6 @@ The example below shows how to create a new storage for a collection of randomly
 ```python
 import torch
 from tensorblob import TensorBlob
-
 
 # Create a new storage for a collection of randomly generated fake embeddings;
 # need to specify the data type and shape of each tensor for creation
