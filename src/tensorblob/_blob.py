@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import shutil
+import warnings
 import uuid
 from dataclasses import dataclass, field
 from itertools import groupby
@@ -189,6 +190,21 @@ class TensorBlob(ConfigMixin):
             save_directory=filename,
             runtime_kwargs={"mode": mode, "filename": os.fspath(filename)},
         )
+
+    @classmethod
+    def unlink(cls, filename):
+        filename = Path(filename).expanduser().resolve()
+        if filename.exists():
+            try:
+                with cls.open(filename, "w") as _:
+                    pass
+                os.unlink(filename / cls.config_name)
+                os.unlink(filename / cls.status_name)
+                os.rmdir(os.fspath(filename))
+            except Exception as exc:
+                warnings.warn("Failed to unlink blob at %r: %s" % (filename, exc))
+                return False
+        return True
 
     @classmethod
     def apply_param_hooks(cls, d):
