@@ -414,14 +414,26 @@ class TensorBlob(ConfigMixin):
         if self._m_ap:
             self.seek(whence=io.SEEK_END)
         ts = ts.view(-1, *self.shape)
-        for t in ts:
+        nt = ts.size(0)
+
+        cnt = 0
+        while cnt < nt:
             if self._isfull() and self._pos >= len(self):
                 self._addblock()
             i, o = divmod(self._pos, self.block_size)
-            self._getblock(i)[o] = t
-            self._status.len += self._pos >= len(self)
-            self._pos += 1
-        return len(ts)
+            incr = min(self.block_size - o, nt - cnt)
+            self._getblock(i)[o : o + incr] = ts[cnt : cnt + incr]
+
+            # Update status length for new tensors exceeding the original range only, because
+            # the cursor may not always be the at EOF and the number of tensors written could
+            # be smaller than change in length
+            self._pos += incr
+            self._status.len += max(0, self._pos - len(self))
+
+            cnt += incr
+
+        assert cnt == nt, "Write incomplete: wrote %d of %d tensors!" % (cnt, nt)
+        return cnt
 
     def truncate(self, pos: int | None = None) -> int:
         self._checkwritable()
