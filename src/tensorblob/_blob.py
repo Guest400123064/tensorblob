@@ -16,6 +16,8 @@ import torch
 from configmixin import ConfigMixin, register_to_config
 from tensordict import MemoryMappedTensor
 
+from tensorblob._lru import LRUCache
+
 
 @dataclass(slots=True, kw_only=True)
 class TensorBlobStatus:
@@ -39,10 +41,19 @@ class TensorBlob(ConfigMixin):
 
     status_name = ".stat"
     config_name = ".conf"
-    ignore_for_config = ["filename", "mode"]
+    ignore_for_config = ["filename", "mode", "max_cached_blocks"]
 
     @classmethod
-    def open(cls, filename, mode="r", *, dtype=None, shape=None, block_size=8192):
+    def open(
+        cls,
+        filename,
+        mode="r",
+        *,
+        dtype=None,
+        shape=None,
+        block_size=8192,
+        max_cached_blocks=None,
+    ):
         r"""Open a TensorBlob with file-like interface for tensor storage.
 
         TensorBlob provides persistent, memory-mapped storage for large collections
@@ -67,6 +78,11 @@ class TensorBlob(ConfigMixin):
             Shape of individual tensors. Required for new blobs (modes 'w', 'w+').
         block_size : int, default=8192
             Number of tensors per memory-mapped block file.
+        max_cached_blocks : int, optional
+            Maximum number of memory-mapped blocks to keep cached. When exceeded,
+            least recently used blocks are unmapped. If None (default), uses 1/16
+            of system's max_map_count limit (typically ~4000). This limits kernel
+            VMA overhead for blobs with many blocks.
 
         Returns
         -------
@@ -184,11 +200,17 @@ class TensorBlob(ConfigMixin):
                     "dtype must be str or torch.dtype, got %r" % type(dtype).__name__
                 )
             shape = (shape,) if isinstance(shape, int) else tuple(shape)
-            return cls(os.fspath(filename), dtype, shape, block_size, mode)
+            return cls(
+                os.fspath(filename), dtype, shape, block_size, mode, max_cached_blocks
+            )
 
         return cls.from_config(
             save_directory=filename,
-            runtime_kwargs={"mode": mode, "filename": os.fspath(filename)},
+            runtime_kwargs={
+                "mode": mode,
+                "filename": os.fspath(filename),
+                "max_cached_blocks": max_cached_blocks,
+            },
         )
 
     @classmethod
@@ -211,6 +233,19 @@ class TensorBlob(ConfigMixin):
         d["shape"] = tuple(d["shape"])
         return d
 
+    @classmethod
+    def _getsyscachesize(cls) -> int:
+        # Get default cache size for memory-mapped blocks. Returns 1/16 of system's
+        # max_map_count to be conservative, typically ~4000, leaving room for other
+        # VMAs in the process.
+        maxsize = 65536
+        try:
+            with open("/proc/sys/vm/max_map_count", "r") as f:
+                maxsize = int(f.read().strip())
+        except (FileNotFoundError, ValueError, PermissionError):
+            pass
+        return max(maxsize // 16, 128)
+
     @register_to_config
     def __init__(
         self,
@@ -219,12 +254,14 @@ class TensorBlob(ConfigMixin):
         shape: tuple[int, ...],
         block_size: int,
         mode: str,
+        max_cached_blocks: int | None = None,
     ) -> None:
         self.filename = filename
         self.dtype = dtype
         self.shape = shape
         self.block_size = block_size
         self.mode = mode
+        self.max_cached_blocks = max_cached_blocks or self._getsyscachesize()
 
         self._pos = 0
         self._closed = False
@@ -320,7 +357,18 @@ class TensorBlob(ConfigMixin):
             self._addblock()
         if isinstance(bd, int):
             bd = self._status.bds[bd]
-        return self._memmap[bd]
+        if bd in self._memmap:
+            return self._memmap[bd]
+
+        # If cache no hit, a block is lazy-loaded into the cache. We need to
+        # avoid the __getitem__ call during return here to not increase the
+        # cache hit count a second time.
+        block = self._memmap[bd] = MemoryMappedTensor.from_filename(
+            os.path.join(self.filename, bd),
+            dtype=getattr(torch, self.dtype),
+            shape=(self.block_size, *self.shape),
+        )
+        return block
 
     def _isfull(self) -> bool:
         return (not len(self) % self.block_size) and bool(len(self))
@@ -346,14 +394,7 @@ class TensorBlob(ConfigMixin):
     def _loadstatus(self) -> None:
         try:
             self._status = TensorBlobStatus.load(self.statuspath)
-            self._memmap = {
-                name: MemoryMappedTensor.from_filename(
-                    os.path.join(self.filename, name),
-                    dtype=getattr(torch, self.dtype),
-                    shape=(self.block_size, *self.shape),
-                )
-                for name in self._status.bds
-            }
+            self._memmap = LRUCache(maxsize=self.max_cached_blocks)
             if self._m_ap:
                 self._pos = len(self)
         except FileNotFoundError as exc:
@@ -440,7 +481,9 @@ class TensorBlob(ConfigMixin):
         self.seek(pos or self.tell())
         brk = ceil(self.tell() / self.block_size)
         for bd in self._status.bds[brk:]:
-            os.remove(self._memmap.pop(bd).filename)
+            if bd in self._memmap:
+                del self._memmap[bd]
+            os.remove(os.path.join(self.filename, bd))
         self._status.bds = self._status.bds[:brk]
         self._status.len = self.tell()
         self.flush()
@@ -452,6 +495,8 @@ class TensorBlob(ConfigMixin):
 
         self._checkwritable()
         self.seek(whence=io.SEEK_END)
+
+        # TODO: Honestly this is a bit inefficient but I think this is rarely used.
         if maintain_order:
             for i in range(len(other)):
                 self.write(other[i])
