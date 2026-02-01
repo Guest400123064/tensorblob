@@ -14,6 +14,7 @@ A lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs, 
 - 💾 **File-like APIs**: Read, write, and seek like a file, while also supporting integer indexing and slicing
 - ⚡ **Dynamic-sized**: No need to specify the total number of tensors upfront
 - 🔄 **Extend and truncate**: Extend the blob with another blob or truncate the blob to a specific position
+- 🚀 **LRU cache**: Automatic management of memory-mapped blocks for scalability with large blobs
 
 ## Installation
 
@@ -120,6 +121,40 @@ with TensorBlob.open("data/features.blob", "r+") as blob:
     blob.truncate(1000)
     print(f"Truncated to {len(blob)} tensors")
 ```
+
+## Performance and Scalability
+
+### Memory Management
+
+TensorBlob uses an LRU (Least Recently Used) cache to manage memory-mapped blocks efficiently. This allows you to work with blobs containing millions of tensors without loading everything into memory.
+
+**Default behavior:**
+
+- Automatically caches up to ~4,000 blocks (1/16 of system's VMA limit)
+- Blocks loaded on-demand when accessed
+- Least recently used blocks automatically evicted when cache is full
+
+**For large-scale workloads:**
+
+```python
+# Increase cache for better random access performance
+with TensorBlob.open("large.blob", "r", max_cached_blocks=10_000) as blob:
+    for idx in random_indices:
+        tensor = blob[idx]  # Cached blocks reused efficiently
+
+# Decrease cache for memory-constrained environments
+with TensorBlob.open("data.blob", "r", max_cached_blocks=100) as blob:
+    for tensor in blob:  # Sequential access works fine with small cache
+        process(tensor)
+```
+
+**Performance tips:**
+
+- Sequential access patterns work well with any cache size
+- Random access benefits from larger cache sizes
+- Each cached block consumes ~200 bytes of kernel memory (VMA overhead)
+- System limit: typically ~65,000 memory-mapped regions per process
+- To avoid frequent cache evictions, one can also increase the block size to reduce the total number of blocks
 
 ## Contributing
 

@@ -143,6 +143,20 @@ class TensorBlob(ConfigMixin):
         ...     images = torch.randn(1000, 3, 1024, 1024)
         ...     blob.write(images)
 
+        Custom cache size for large-scale random access:
+
+        >>> # Increase cache for better random access performance
+        >>> with TensorBlob.open("data/embeddings", "r",
+        ...                       max_cached_blocks=10000) as blob:
+        ...     for idx in random_indices:
+        ...         embedding = blob[idx]  # Frequently accessed blocks stay cached
+
+        >>> # Decrease cache for memory-constrained environments
+        >>> with TensorBlob.open("data/features", "r",
+        ...                       max_cached_blocks=100) as blob:
+        ...     for feature in blob:  # Sequential access works fine
+        ...         process(feature)
+
         File Access Modes
         -----------------
         Similar to Python's built-in open(), supports the following modes:
