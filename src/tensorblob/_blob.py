@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from itertools import groupby
 from math import ceil
 from pathlib import Path
-from typing import Iterator
+from typing import TYPE_CHECKING
 
 import orjson
 import torch
@@ -17,6 +17,9 @@ from configmixin import ConfigMixin, register_to_config
 from tensordict import MemoryMappedTensor
 
 from tensorblob._lru import LRUCache
+
+if TYPE_CHECKING:
+    from typing import Iterator
 
 
 @dataclass(slots=True, kw_only=True)
