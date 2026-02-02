@@ -480,7 +480,7 @@ class TensorBlob(ConfigMixin):
             self._getblock(i)[o : o + incr] = ts[cnt : cnt + incr]
 
             # Update status length for new tensors exceeding the original range only, because
-            # the cursor may not always be the at EOF and the number of tensors written could
+            # the cursor may not always be at the EOF and the number of tensors written could
             # be smaller than change in length
             self._pos += incr
             self._status.len += max(0, self._pos - len(self))
