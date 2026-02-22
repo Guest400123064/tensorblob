@@ -19,7 +19,7 @@ from tensordict import MemoryMappedTensor
 from tensorblob._lru import LRUCache
 
 if TYPE_CHECKING:
-    from typing import Iterator
+    from collections.abc import Iterator
 
 
 @dataclass(slots=True, kw_only=True)
