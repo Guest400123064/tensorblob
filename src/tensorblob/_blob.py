@@ -246,9 +246,9 @@ class TensorBlob(ConfigMixin):
         return True
 
     @classmethod
-    def apply_param_hooks(cls, d):
-        d["shape"] = tuple(d["shape"])
-        return d
+    def apply_param_hooks(cls, jdict):
+        jdict["shape"] = tuple(jdict["shape"])
+        return jdict
 
     @classmethod
     def _getsyscachesize(cls) -> int:
