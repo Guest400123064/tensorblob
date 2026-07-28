@@ -15,6 +15,7 @@ A lightweight, dynamic-sized, memory-mapped tensor storage with file-like APIs, 
 - ⚡ **Dynamic-sized**: No need to specify the total number of tensors upfront
 - 🔄 **Extend and truncate**: Extend the blob with another blob or truncate the blob to a specific position
 - 🚀 **LRU cache**: Automatic management of memory-mapped blocks for scalability with large blobs
+- 🧩 **Multi-field databases**: `TensorDB` manages several row-aligned blobs for heterogeneous data, e.g., multivariate time series or event streams
 
 ## Installation
 
@@ -121,6 +122,48 @@ with TensorBlob.open("data/features.blob", "r+") as blob:
     blob.truncate(1000)
     print(f"Truncated to {len(blob)} tensors")
 ```
+
+### Heterogeneous Data with TensorDB
+
+For multi-modal or multi-field data (e.g., multivariate time series, event streams), `TensorDB` manages several `TensorBlob`s under the hood — one per field — with row orders always aligned. Each field has its own dtype and shape, and each field's storage gets its own independent LRU cache and block files.
+
+```python
+from tensorblob import TensorDB
+
+# Create a database with a fixed schema mapping field names to (dtype, shape)
+with TensorDB.open("events.db", "w",
+                   schema={"price": ("float32", 1),
+                           "embed": ("float16", 768)}) as db:
+    # Rows are dense: every write must supply every field with the same row count
+    db.write({"price": torch.randn(100_000, 1),
+              "embed": torch.randn(100_000, 768).half()})
+    print(f"Wrote {len(db)} rows")
+
+# No need to specify the schema again after creation
+with TensorDB.open("events.db", "r") as db:
+    row = db[42]          # {"price": tensor of shape (1,), "embed": (768,)}
+    batch = db[10:100]    # {"price": (90, 1), "embed": (90, 768)}
+    print(f"Fields: {list(batch)}, price range: {batch['price'].min()}..{batch['price'].max()}")
+```
+
+`TensorDB` supports the same file-like APIs as `TensorBlob`, applied row-wise across all fields:
+
+```python
+with TensorDB.open("events.db", "r+") as db:
+    db.seek(1000)
+    batch = db.read(size=100)                 # dict of (100, ...) tensors
+
+    db.seek(-500, whence=io.SEEK_END)
+    db.write({"price": new_prices, "embed": new_embeds})  # overwrite in place
+
+    db.truncate(10_000)                       # truncate all fields at once
+    db.extend(other_db, maintain_order=False) # merge another db with the same schema
+
+# Cleanup removes the whole database directory
+TensorDB.unlink("events.db")
+```
+
+**Consistency guarantee**: a write commits the row count only after all fields are written. If a crash interrupts a write mid-way, the next open reports the last committed (fully written) row count, and writable opens automatically truncate the stray partial rows, so row alignment is always preserved.
 
 ## Performance and Scalability
 
