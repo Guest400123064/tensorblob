@@ -4,7 +4,6 @@ import os
 import warnings
 from pathlib import Path
 
-import pytest
 import torch
 
 from tensorblob import TensorBlob

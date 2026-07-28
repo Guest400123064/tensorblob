@@ -171,15 +171,16 @@ class TestBasicWrite:
 
     def test_write_unexpected_field(self, tmp_path, schema):
         """Test that dense write with an extra field raises ValueError."""
-        with TensorDB.open(tmp_path / "db", "w", schema=schema) as db:
-            with pytest.raises(ValueError, match="unexpected"):
-                db.write(
-                    {
-                        "price": torch.randn(10, 1),
-                        "embed": torch.randn(10, 4),
-                        "extra": torch.randn(10, 2),
-                    }
-                )
+        with TensorDB.open(tmp_path / "db", "w", schema=schema) as db, pytest.raises(
+            ValueError, match="unexpected"
+        ):
+            db.write(
+                {
+                    "price": torch.randn(10, 1),
+                    "embed": torch.randn(10, 4),
+                    "extra": torch.randn(10, 2),
+                }
+            )
 
     def test_write_mismatched_row_counts(self, tmp_path, schema):
         """Test that fields with different row counts raise ValueError."""
@@ -190,16 +191,18 @@ class TestBasicWrite:
 
     def test_write_non_dict_rows(self, tmp_path, schema):
         """Test that non-dict rows raise TypeError."""
-        with TensorDB.open(tmp_path / "db", "w", schema=schema) as db:
-            with pytest.raises(TypeError, match="dict"):
-                db.write(torch.randn(10, 5))
+        with TensorDB.open(tmp_path / "db", "w", schema=schema) as db, pytest.raises(
+            TypeError, match="dict"
+        ):
+            db.write(torch.randn(10, 5))
 
     def test_write_requires_writable_mode(self, db_with_data):
         """Test that write in read mode raises IOError."""
         db_dir, sample_rows = db_with_data
-        with TensorDB.open(db_dir, "r") as db:
-            with pytest.raises(IOError, match="not open for writing"):
-                db.write(sample_rows)
+        with TensorDB.open(db_dir, "r") as db, pytest.raises(
+            IOError, match="not open for writing"
+        ):
+            db.write(sample_rows)
 
     def test_write_with_reshape(self, tmp_path):
         """Test that flat tensors are reshaped like in TensorBlob."""
@@ -244,9 +247,10 @@ class TestBasicRead:
 
     def test_read_requires_readable_mode(self, tmp_path, schema):
         """Test that read in write-only mode raises IOError."""
-        with TensorDB.open(tmp_path / "db", "w", schema=schema) as db:
-            with pytest.raises(IOError, match="not open for reading"):
-                db.read()
+        with TensorDB.open(tmp_path / "db", "w", schema=schema) as db, pytest.raises(
+            IOError, match="not open for reading"
+        ):
+            db.read()
 
 
 class TestIndexingAndSlicing:
@@ -282,9 +286,10 @@ class TestIndexingAndSlicing:
     def test_invalid_index_type(self, db_with_data):
         """Test that invalid index types raise TypeError."""
         db_dir, _ = db_with_data
-        with TensorDB.open(db_dir, "r") as db:
-            with pytest.raises(TypeError, match="Index must be"):
-                _ = db["price"]
+        with TensorDB.open(db_dir, "r") as db, pytest.raises(
+            TypeError, match="Index must be"
+        ):
+            _ = db["price"]
 
     def test_slice_returns_batched_dict(self, db_with_data):
         """Test slicing returns batched tensors per field."""
@@ -332,9 +337,10 @@ class TestSeekTellAndIteration:
     def test_invalid_whence(self, db_with_data):
         """Test that invalid whence raises ValueError."""
         db_dir, _ = db_with_data
-        with TensorDB.open(db_dir, "r") as db:
-            with pytest.raises(ValueError, match="whence"):
-                db.seek(0, whence=99)
+        with TensorDB.open(db_dir, "r") as db, pytest.raises(
+            ValueError, match="whence"
+        ):
+            db.seek(0, whence=99)
 
     def test_iterate_all(self, db_with_data):
         """Test iterating over the entire database yields row dicts."""
@@ -419,9 +425,10 @@ class TestTruncate:
     def test_truncate_requires_writable_mode(self, db_with_data):
         """Test that truncate requires writable mode."""
         db_dir, _ = db_with_data
-        with TensorDB.open(db_dir, "r") as db:
-            with pytest.raises(IOError, match="not open for writing"):
-                db.truncate(50)
+        with TensorDB.open(db_dir, "r") as db, pytest.raises(
+            IOError, match="not open for writing"
+        ):
+            db.truncate(50)
 
 
 class TestExtend:
@@ -438,9 +445,10 @@ class TestExtend:
         self._make_db(tmp_path / "db1", schema, rows1)
         self._make_db(tmp_path / "db2", schema, rows2)
 
-        with TensorDB.open(tmp_path / "db1", "r+") as db1:
-            with TensorDB.open(tmp_path / "db2", "r") as db2:
-                db1.extend(db2, maintain_order=True)
+        with TensorDB.open(tmp_path / "db1", "r+") as db1, TensorDB.open(
+            tmp_path / "db2", "r"
+        ) as db2:
+            db1.extend(db2, maintain_order=True)
 
         with TensorDB.open(tmp_path / "db1", "r") as db:
             assert len(db) == 80
@@ -454,12 +462,31 @@ class TestExtend:
         self._make_db(tmp_path / "db1", schema, rows1, block_size=50)
         self._make_db(tmp_path / "db2", schema, rows2, block_size=50)
 
-        with TensorDB.open(tmp_path / "db1", "r+") as db1:
-            with TensorDB.open(tmp_path / "db2", "r") as db2:
-                db1.extend(db2, maintain_order=False)
+        with TensorDB.open(tmp_path / "db1", "r+") as db1, TensorDB.open(
+            tmp_path / "db2", "r"
+        ) as db2:
+            db1.extend(db2, maintain_order=False)
 
         with TensorDB.open(tmp_path / "db1", "r") as db:
             assert len(db) == 175
+
+    def test_extend_fast_mode_small_destination(self, tmp_path, schema):
+        """Regression: fast extend when destination is smaller than one block."""
+        rows1 = {"price": torch.ones(7, 1), "embed": torch.ones(7, 4)}
+        rows2 = {"price": torch.zeros(2, 1), "embed": torch.zeros(2, 4)}
+        self._make_db(tmp_path / "db1", schema, rows1)
+        self._make_db(tmp_path / "db2", schema, rows2)
+
+        with TensorDB.open(tmp_path / "db1", "r+") as db1, TensorDB.open(
+            tmp_path / "db2", "r"
+        ) as db2:
+            db1.extend(db2, maintain_order=False)
+
+        with TensorDB.open(tmp_path / "db1", "r") as db:
+            # Destination's own rows must not be duplicated
+            assert len(db) == 9
+            assert torch.allclose(db[:7]["price"], rows1["price"])
+            assert torch.allclose(db[7:]["embed"], rows2["embed"])
 
     def test_extend_field_mismatch(self, tmp_path):
         """Test that extending with different fields raises ValueError."""
@@ -469,10 +496,10 @@ class TestExtend:
         self._make_db(
             tmp_path / "db2", {"b": ("float32", (2,))}, {"b": torch.randn(10, 2)}
         )
-        with TensorDB.open(tmp_path / "db1", "r+") as db1:
-            with TensorDB.open(tmp_path / "db2", "r") as db2:
-                with pytest.raises(ValueError, match="Schema fields must match"):
-                    db1.extend(db2)
+        with TensorDB.open(tmp_path / "db1", "r+") as db1, TensorDB.open(
+            tmp_path / "db2", "r"
+        ) as db2, pytest.raises(ValueError, match="Schema fields must match"):
+            db1.extend(db2)
 
     def test_extend_dtype_mismatch(self, tmp_path):
         """Test that extending with mismatched column dtypes raises ValueError."""
@@ -482,20 +509,20 @@ class TestExtend:
         self._make_db(
             tmp_path / "db2", {"a": ("float64", (2,))}, {"a": torch.randn(10, 2)}
         )
-        with TensorDB.open(tmp_path / "db1", "r+") as db1:
-            with TensorDB.open(tmp_path / "db2", "r") as db2:
-                with pytest.raises(ValueError, match="must match"):
-                    db1.extend(db2)
+        with TensorDB.open(tmp_path / "db1", "r+") as db1, TensorDB.open(
+            tmp_path / "db2", "r"
+        ) as db2, pytest.raises(ValueError, match="must match"):
+            db1.extend(db2)
 
     def test_extend_requires_writable_mode(self, tmp_path, schema):
         """Test that extend requires writable mode."""
         rows = {"price": torch.randn(10, 1), "embed": torch.randn(10, 4)}
         self._make_db(tmp_path / "db1", schema, rows)
         self._make_db(tmp_path / "db2", schema, rows)
-        with TensorDB.open(tmp_path / "db1", "r") as db1:
-            with TensorDB.open(tmp_path / "db2", "r") as db2:
-                with pytest.raises(IOError, match="not open for writing"):
-                    db1.extend(db2)
+        with TensorDB.open(tmp_path / "db1", "r") as db1, TensorDB.open(
+            tmp_path / "db2", "r"
+        ) as db2, pytest.raises(IOError, match="not open for writing"):
+            db1.extend(db2)
 
 
 class TestFlushAndClose:
@@ -579,8 +606,9 @@ class TestConsistencyRepair:
         self._simulate_partial_write(db_dir, "price", torch.randn(5, 1))
 
         with pytest.warns(UserWarning, match="Inconsistent"):
-            with TensorDB.open(db_dir, "r+") as db:
-                assert len(db) == 100
+            db = TensorDB.open(db_dir, "r+")
+        with db:
+            assert len(db) == 100
 
         # Repair persisted: column truncated back and no more warnings
         with TensorBlob.open(db_dir / "price", "r") as col:
@@ -596,11 +624,12 @@ class TestConsistencyRepair:
         self._simulate_partial_write(db_dir, "embed", torch.randn(5, 4))
 
         with pytest.warns(UserWarning, match="Inconsistent"):
-            with TensorDB.open(db_dir, "r") as db:
-                assert len(db) == 100
-                result = db.read()
-                assert result["price"].shape[0] == 100
-                assert result["embed"].shape[0] == 100
+            db = TensorDB.open(db_dir, "r")
+        with db:
+            assert len(db) == 100
+            result = db.read()
+            assert result["price"].shape[0] == 100
+            assert result["embed"].shape[0] == 100
 
         # Not repaired on disk in read-only mode
         with TensorBlob.open(db_dir / "embed", "r") as col:

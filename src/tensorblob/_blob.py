@@ -3,13 +3,13 @@ from __future__ import annotations
 import io
 import os
 import shutil
-import warnings
 import uuid
+import warnings
 from dataclasses import dataclass, field
 from itertools import groupby
 from math import ceil
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import orjson
 import torch
@@ -20,6 +20,8 @@ from tensorblob._lru import LRUCache
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from typing_extensions import Self
 
 
 @dataclass(slots=True, kw_only=True)
@@ -44,7 +46,7 @@ class TensorBlob(ConfigMixin):
 
     status_name = ".stat"
     config_name = ".conf"
-    ignore_for_config = ["filename", "mode", "max_cached_blocks"]
+    ignore_for_config: ClassVar[list[str]] = ["filename", "mode", "max_cached_blocks"]
 
     @classmethod
     def open(
@@ -194,27 +196,25 @@ class TensorBlob(ConfigMixin):
         """
         modes = set(mode)
         if modes - set("raw+") or len(mode) > len(modes):
-            raise ValueError("Invalid mode: %s" % mode)
+            raise ValueError(f"Invalid mode: {mode}")
         if sum(c in "raw" for c in mode) != 1 or mode.count("+") > 1:
             raise ValueError(
-                "Must have exactly one of read/write/append mode and at most one plus: %s"
-                % mode
+                f"Must have exactly one of read/write/append mode and at most one plus: {mode}"
             )
 
         filename = Path(filename).expanduser().resolve()
         if not filename.exists():
             if "r" in modes or "a" in modes:
-                raise FileNotFoundError("Blob not found: %r" % filename)
+                raise FileNotFoundError(f"Blob not found: {filename!r}")
             if dtype is None or shape is None:
                 raise ValueError(
-                    "Arguments ``dtype`` and ``shape`` are required for new blob; got: %r and %r"
-                    % (dtype, shape)
+                    f"Arguments ``dtype`` and ``shape`` are required for new blob; got: {dtype!r} and {shape!r}"
                 )
             if isinstance(dtype, torch.dtype):
                 dtype = str(dtype).split(".").pop()
             elif not isinstance(dtype, str):
                 raise TypeError(
-                    "dtype must be str or torch.dtype, got %r" % type(dtype).__name__
+                    f"dtype must be str or torch.dtype, got {type(dtype).__name__!r}"
                 )
             shape = (shape,) if isinstance(shape, int) else tuple(shape)
             return cls(
@@ -240,8 +240,8 @@ class TensorBlob(ConfigMixin):
                 os.unlink(filename / cls.config_name)
                 os.unlink(filename / cls.status_name)
                 os.rmdir(os.fspath(filename))
-            except Exception as exc:
-                warnings.warn("Failed to unlink blob at %r: %s" % (filename, exc))
+            except (OSError, ValueError) as exc:
+                warnings.warn(f"Failed to unlink blob at {filename!r}: {exc}")
                 return False
         return True
 
@@ -311,7 +311,7 @@ class TensorBlob(ConfigMixin):
     def closed(self) -> bool:
         return self._closed
 
-    def __enter__(self) -> TensorBlob:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_) -> None:
@@ -322,11 +322,11 @@ class TensorBlob(ConfigMixin):
 
     def __getitem__(self, idx: int | slice) -> torch.Tensor:
         if not isinstance(idx, (int, slice)):
-            raise TypeError("Index must be int or slice, got %r!" % type(idx).__name__)
+            raise TypeError(f"Index must be int or slice, got {type(idx).__name__!r}!")
         if isinstance(idx, int):
             if idx >= len(self) or idx < -len(self):
                 raise IndexError(
-                    "Index out of bounds: %r (length: %d)" % (idx, len(self))
+                    f"Index out of bounds: {idx!r} (length: {len(self)})"
                 )
             i, o = divmod(idx + len(self) if idx < 0 else idx, self.block_size)
             return self._getblock(i)[o].clone()
@@ -356,8 +356,7 @@ class TensorBlob(ConfigMixin):
                 st = TensorBlobStatus.load(self.statuspath)
             except FileNotFoundError as exc:
                 raise FileNotFoundError(
-                    "Status file missing for blob at %r; file corrupted!"
-                    % self.statuspath
+                    f"Status file missing for blob at {self.statuspath!r}; file corrupted!"
                 ) from exc
             for bd in st.bds:
                 os.remove(os.path.join(self.filename, bd))
@@ -394,8 +393,8 @@ class TensorBlob(ConfigMixin):
         if self._status.bds and not self._isfull():
             raise RuntimeError(
                 "Attempt to create a new block when working block "
-                "is not full: length <%d> < capacity <%d>."
-                % (len(self) % self.block_size, self.block_size)
+                f"is not full: length <{len(self) % self.block_size}> "
+                f"< capacity <{self.block_size}>."
             )
         name = str(uuid.uuid4())
         mmap = MemoryMappedTensor.empty(
@@ -416,21 +415,21 @@ class TensorBlob(ConfigMixin):
                 self._pos = len(self)
         except FileNotFoundError as exc:
             raise FileNotFoundError(
-                "status file missing for blob at %r; file corrupted!" % self.statuspath
+                f"status file missing for blob at {self.statuspath!r}; file corrupted!"
             ) from exc
 
     def _checkclosed(self) -> None:
         if self._closed:
-            raise IOError("I/O operation on closed blob.")
+            raise OSError("I/O operation on closed blob.")
 
     def _checkwritable(self) -> None:
         if not self._m_wr:
-            raise IOError("Blob is not open for writing (mode='%s')" % self.mode)
+            raise OSError(f"Blob is not open for writing (mode='{self.mode}')")
         self._checkclosed()
 
     def _checkreadable(self) -> None:
         if not self._m_rd:
-            raise IOError("Blob is not open for reading (mode='%s')" % self.mode)
+            raise OSError(f"Blob is not open for reading (mode='{self.mode}')")
         self._checkclosed()
 
     def tell(self) -> int:
@@ -447,7 +446,7 @@ class TensorBlob(ConfigMixin):
             case io.SEEK_END:
                 _pos = len(self) + pos
             case _:
-                raise ValueError("Invalid whence: %r" % whence)
+                raise ValueError(f"Invalid whence: {whence!r}")
         self._pos = max(min(_pos, len(self)), 0)
         return self.tell()
 
@@ -462,7 +461,7 @@ class TensorBlob(ConfigMixin):
 
     def read(self, size: int | None = None) -> torch.Tensor:
         self._checkreadable()
-        end = min(self._pos + (size or len(self)), len(self))
+        end = min(self._pos + (size if size is not None else len(self)), len(self))
         ret = self[self._pos : end]
         self.seek(end)
         return ret
@@ -490,12 +489,12 @@ class TensorBlob(ConfigMixin):
 
             cnt += incr
 
-        assert cnt == nt, "Write incomplete: wrote %d of %d tensors!" % (cnt, nt)
+        assert cnt == nt, f"Write incomplete: wrote {cnt} of {nt} tensors!"
         return cnt
 
     def truncate(self, pos: int | None = None) -> int:
         self._checkwritable()
-        self.seek(pos or self.tell())
+        self.seek(pos if pos is not None else self.tell())
         brk = ceil(self.tell() / self.block_size)
         for bd in self._status.bds[brk:]:
             if bd in self._memmap:

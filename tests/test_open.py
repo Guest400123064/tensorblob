@@ -1,9 +1,11 @@
 """Tests for TensorBlob.open() method - mode handling and blob creation."""
 
+import shutil
+from pathlib import Path
+
 import pytest
 import torch
-from pathlib import Path
-import shutil
+
 from tensorblob import TensorBlob
 
 

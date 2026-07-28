@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+
 from tensorblob import TensorBlob
 
 
@@ -40,12 +41,22 @@ class TestTruncateBasic:
         """Test truncating to zero length."""
         with TensorBlob.open(temp_blob_dir, "w+", dtype="float32", shape=(5,)) as blob:
             blob.write(torch.randn(50, 5))
-            
+
             blob.seek(0)  # Need to seek to position 0 first
             blob.truncate(0)
             assert len(blob) == 0
             result = blob.read()
             assert result.size(0) == 0
+
+    def test_truncate_to_zero_from_nonzero_position(self, temp_blob_dir):
+        """Regression: truncate(0) must not fall back to the current position."""
+        with TensorBlob.open(temp_blob_dir, "w+", dtype="float32", shape=(5,)) as blob:
+            blob.write(torch.randn(50, 5))
+            assert blob.tell() == 50  # Non-zero current position
+
+            blob.truncate(0)
+            assert len(blob) == 0
+            assert blob.tell() == 0
     
     def test_truncate_then_write(self, temp_blob_dir):
         """Test writing after truncation."""
@@ -345,6 +356,29 @@ class TestExtendFastMode:
         
         with TensorBlob.open(blob1_dir, "r") as blob:
             assert len(blob) == 155
+
+    def test_fast_extend_destination_smaller_than_block(self, temp_blob_dir):
+        """Regression: fast extend when destination has fewer rows than one block."""
+        data1 = torch.arange(40, dtype=torch.float32).reshape(10, 4)
+        data2 = torch.full((3, 4), -1.0)
+
+        blob1_dir = temp_blob_dir / "blob1"
+        with TensorBlob.open(blob1_dir, "w", dtype="float32", shape=(4,)) as blob:
+            blob.write(data1)
+
+        blob2_dir = temp_blob_dir / "blob2"
+        with TensorBlob.open(blob2_dir, "w", dtype="float32", shape=(4,)) as blob:
+            blob.write(data2)
+
+        with TensorBlob.open(blob1_dir, "r+") as blob1:
+            with TensorBlob.open(blob2_dir, "r") as blob2:
+                blob1.extend(blob2, maintain_order=False)
+
+        with TensorBlob.open(blob1_dir, "r") as blob:
+            # Destination's own rows must not be duplicated
+            assert len(blob) == 13
+            assert torch.allclose(blob[:10], data1)
+            assert torch.allclose(blob[10:], data2)
 
 
 class TestTruncateAndExtendCombined:

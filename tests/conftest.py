@@ -1,8 +1,10 @@
 """Common test fixtures for TensorBlob tests."""
 
+import shutil
+
 import pytest
 import torch
-import shutil
+
 from tensorblob import TensorBlob
 
 

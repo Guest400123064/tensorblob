@@ -127,17 +127,16 @@ class TensorDB:
         """
         modes = set(mode)
         if modes - set("raw+") or len(mode) > len(modes):
-            raise ValueError("Invalid mode: %s" % mode)
+            raise ValueError(f"Invalid mode: {mode}")
         if sum(c in "raw" for c in mode) != 1 or mode.count("+") > 1:
             raise ValueError(
-                "Must have exactly one of read/write/append mode and at most one plus: %s"
-                % mode
+                f"Must have exactly one of read/write/append mode and at most one plus: {mode}"
             )
 
         filename = Path(filename).expanduser().resolve()
         if not filename.exists():
             if "r" in modes or "a" in modes:
-                raise FileNotFoundError("Database not found: %r" % filename)
+                raise FileNotFoundError(f"Database not found: {filename!r}")
             if schema is None:
                 raise ValueError("Argument ``schema`` is required for new database!")
             schema = cls._normalize_schema(schema)
@@ -152,7 +151,7 @@ class TensorDB:
             try:
                 shutil.rmtree(filename)
             except Exception as exc:
-                warnings.warn("Failed to unlink database at %r: %s" % (filename, exc))
+                warnings.warn(f"Failed to unlink database at {filename!r}: {exc}")
                 return False
         return True
 
@@ -172,13 +171,13 @@ class TensorDB:
                 or os.sep in name
                 or (os.altsep and os.altsep in name)
             ):
-                raise ValueError("Invalid field name: %r" % (name,))
+                raise ValueError(f"Invalid field name: {name!r}")
             dtype, shape = spec
             if isinstance(dtype, torch.dtype):
                 dtype = str(dtype).split(".").pop()
             elif not isinstance(dtype, str):
                 raise TypeError(
-                    "dtype must be str or torch.dtype, got %r" % type(dtype).__name__
+                    f"dtype must be str or torch.dtype, got {type(dtype).__name__!r}"
                 )
             shape = (shape,) if isinstance(shape, int) else tuple(shape)
             norm[name] = (dtype, shape)
@@ -278,7 +277,7 @@ class TensorDB:
 
     def __getitem__(self, idx: int | slice) -> dict[str, torch.Tensor]:
         if not isinstance(idx, (int, slice)):
-            raise TypeError("Index must be int or slice, got %r!" % type(idx).__name__)
+            raise TypeError(f"Index must be int or slice, got {type(idx).__name__!r}!")
         return {name: col[idx] for name, col in self._cols.items()}
 
     def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
@@ -291,8 +290,7 @@ class TensorDB:
             self._status = TensorDBStatus.load(self.statuspath)
         except FileNotFoundError as exc:
             raise FileNotFoundError(
-                "Status file missing for database at %r; file corrupted!"
-                % self.statuspath
+                f"Status file missing for database at {self.statuspath!r}; file corrupted!"
             ) from exc
 
         # The committed row count is the source of truth. A crash mid-write can
@@ -303,8 +301,8 @@ class TensorDB:
             len(col) != target for col in self._cols.values()
         ):
             warnings.warn(
-                "Inconsistent column lengths detected for database at %r; "
-                "reporting %d committed rows." % (self.filename, target)
+                f"Inconsistent column lengths detected for database at {self.filename!r}; "
+                f"reporting {target} committed rows."
             )
             self._status.len = target
             if self._m_wr:
@@ -315,16 +313,16 @@ class TensorDB:
 
     def _checkclosed(self) -> None:
         if self._closed:
-            raise IOError("I/O operation on closed database.")
+            raise OSError("I/O operation on closed database.")
 
     def _checkwritable(self) -> None:
         if not self._m_wr:
-            raise IOError("Database is not open for writing (mode='%s')" % self.mode)
+            raise OSError(f"Database is not open for writing (mode='{self.mode}')")
         self._checkclosed()
 
     def _checkreadable(self) -> None:
         if not self._m_rd:
-            raise IOError("Database is not open for reading (mode='%s')" % self.mode)
+            raise OSError(f"Database is not open for reading (mode='{self.mode}')")
         self._checkclosed()
 
     def tell(self) -> int:
@@ -369,15 +367,14 @@ class TensorDB:
         self._checkwritable()
         if not isinstance(rows, dict):
             raise TypeError(
-                "Rows must be a dict mapping field names to tensors, got %r!"
-                % type(rows).__name__
+                f"Rows must be a dict mapping field names to tensors, got {type(rows).__name__!r}!"
             )
         missing = sorted(self.schema.keys() - rows.keys())
         extra = sorted(rows.keys() - self.schema.keys())
         if missing or extra:
             raise ValueError(
                 "Dense writes require exactly the schema fields; "
-                "missing: %r, unexpected: %r" % (missing, extra)
+                f"missing: {missing!r}, unexpected: {extra!r}"
             )
 
         nts = {
@@ -385,7 +382,7 @@ class TensorDB:
             for name, ts in rows.items()
         }
         if len(set(nts.values())) != 1:
-            raise ValueError("All fields must have the same row count; got: %r" % nts)
+            raise ValueError(f"All fields must have the same row count; got: {nts!r}")
         nt = next(iter(nts.values()))
 
         # Columns are written first and the committed row count is bumped only

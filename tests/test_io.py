@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+
 from tensorblob import TensorBlob
 
 
@@ -93,6 +94,15 @@ class TestBasicRead:
         with TensorBlob.open(temp_blob_dir, "r") as blob:
             result = blob.read()
             assert result.size(0) == 0
+
+    def test_read_size_zero(self, blob_with_data):
+        """Regression: read(size=0) must return empty, not read to end."""
+        blob_dir, _ = blob_with_data
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            result = blob.read(size=0)
+            assert result.shape == (0, 10)
+            assert blob.tell() == 0
 
 
 class TestIndexing:
