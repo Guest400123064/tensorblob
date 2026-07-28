@@ -6,15 +6,18 @@ import shutil
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import orjson
 import torch
+from configmixin import ConfigMixin, register_to_config
 
 from tensorblob._blob import TensorBlob
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from typing_extensions import Self
 
 
 @dataclass(slots=True, kw_only=True)
@@ -31,13 +34,14 @@ class TensorDBStatus:
             fs.write(orjson.dumps(self))
 
 
-class TensorDB:
+class TensorDB(ConfigMixin):
     _m_rd = False
     _m_wr = False
     _m_ap = False
 
     status_name = ".stat"
     config_name = ".conf"
+    ignore_for_config: ClassVar[list[str]] = ["filename", "mode", "max_cached_blocks"]
 
     @classmethod
     def open(
@@ -140,9 +144,16 @@ class TensorDB:
             if schema is None:
                 raise ValueError("Argument ``schema`` is required for new database!")
             schema = cls._normalize_schema(schema)
-        else:
-            schema = cls._load_schema(filename / cls.config_name)
-        return cls(os.fspath(filename), schema, block_size, mode, max_cached_blocks)
+            return cls(os.fspath(filename), schema, block_size, mode, max_cached_blocks)
+
+        return cls.from_config(
+            save_directory=filename,
+            runtime_kwargs={
+                "mode": mode,
+                "filename": os.fspath(filename),
+                "max_cached_blocks": max_cached_blocks,
+            },
+        )
 
     @classmethod
     def unlink(cls, filename):
@@ -150,7 +161,7 @@ class TensorDB:
         if filename.exists():
             try:
                 shutil.rmtree(filename)
-            except Exception as exc:
+            except OSError as exc:
                 warnings.warn(f"Failed to unlink database at {filename!r}: {exc}")
                 return False
         return True
@@ -184,24 +195,14 @@ class TensorDB:
         return norm
 
     @classmethod
-    def _load_schema(cls, frm):
-        with open(frm, "rb") as fs:
-            return {
-                name: (spec["dtype"], tuple(spec["shape"]))
-                for name, spec in orjson.loads(fs.read()).items()
-            }
+    def apply_param_hooks(cls, jdict):
+        jdict["schema"] = {
+            name: (dtype, tuple(shape))
+            for name, (dtype, shape) in jdict["schema"].items()
+        }
+        return jdict
 
-    def _dump_schema(self, to):
-        with open(to, "wb") as fs:
-            fs.write(
-                orjson.dumps(
-                    {
-                        name: {"dtype": dtype, "shape": list(shape)}
-                        for name, (dtype, shape) in self.schema.items()
-                    }
-                )
-            )
-
+    @register_to_config
     def __init__(
         self,
         filename: str,
@@ -233,7 +234,7 @@ class TensorDB:
         isnew = not os.path.exists(self.filename)
         if isnew:
             os.makedirs(self.filename)
-            self._dump_schema(self.configpath)
+            self.save_config(save_directory=self.filename)
         self._cols = {
             name: TensorBlob.open(
                 os.path.join(self.filename, name),
@@ -266,7 +267,7 @@ class TensorDB:
     def closed(self) -> bool:
         return self._closed
 
-    def __enter__(self) -> TensorDB:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_) -> None:
