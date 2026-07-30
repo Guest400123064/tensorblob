@@ -58,6 +58,15 @@ class TestTruncateBasic:
             assert len(blob) == 0
             assert blob.tell() == 0
 
+    def test_truncate_negative_position(self, temp_blob_dir):
+        """Regression: negative positions must raise, not wipe the blob."""
+        with TensorBlob.open(temp_blob_dir, "w+", dtype="float32", shape=(5,)) as blob:
+            blob.write(torch.randn(50, 5))
+
+            with pytest.raises(ValueError, match="non-negative"):
+                blob.truncate(-1)
+            assert len(blob) == 50
+
     def test_truncate_then_write(self, temp_blob_dir):
         """Test writing after truncation."""
         with TensorBlob.open(temp_blob_dir, "w+", dtype="float32", shape=(5,)) as blob:

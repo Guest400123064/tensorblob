@@ -342,7 +342,7 @@ class TensorBlob(ConfigMixin):
             if not ret:
                 return torch.empty(0, *self.shape, dtype=getattr(torch, self.dtype))
             return torch.cat(ret, dim=0)
-        if isinstance(idx, (list, tuple, torch.Tensor)):
+        if isinstance(idx, (list, tuple, torch.Tensor)) or hasattr(idx, "__array__"):
             return self._getbatch(idx)
         raise TypeError(
             "Index must be int, slice, or a sequence of int, "
@@ -353,11 +353,16 @@ class TensorBlob(ConfigMixin):
         # Vectorized fancy indexing: gather rows in block-sorted order (one
         # vectorized lookup per distinct block), then scatter back to the
         # original order, mirroring torch's fancy indexing semantics.
+        raw = idx
         idx = torch.as_tensor(idx)
         if idx.numel() and (
             idx.dtype == torch.bool or idx.is_floating_point() or idx.is_complex()
         ):
-            raise TypeError(f"Batch index must have an integer dtype, got {idx.dtype}!")
+            if isinstance(raw, torch.Tensor):
+                got = f"dtype {raw.dtype}"
+            else:
+                got = f"elements of type {type(raw[0]).__name__!r}"
+            raise TypeError(f"Batch index must have an integer dtype, got {got}!")
         idx = idx.long()
         if idx.ndim != 1:
             raise ValueError(f"Batch index must be 1-dimensional, got {idx.ndim}!")
@@ -534,6 +539,8 @@ class TensorBlob(ConfigMixin):
 
     def truncate(self, pos: int | None = None) -> int:
         self._checkwritable()
+        if pos is not None and pos < 0:
+            raise ValueError(f"Truncate position must be non-negative, got {pos}!")
         self.seek(pos if pos is not None else self.tell())
         brk = ceil(self.tell() / self.block_size)
         for bd in self._status.bds[brk:]:

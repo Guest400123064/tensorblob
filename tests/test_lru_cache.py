@@ -13,6 +13,14 @@ from tensorblob import TensorBlob
 class TestLRUCache:
     """Test LRU cache for memory-mapped blocks."""
 
+    def test_invalid_maxsize(self):
+        """Regression: non-positive maxsize must raise a clear error."""
+        from tensorblob._lru import LRUCache
+
+        for maxsize in (0, -1):
+            with pytest.raises(ValueError, match="positive integer"):
+                LRUCache(maxsize=maxsize)
+
     @pytest.fixture
     def temp_dir(self):
         """Create a temporary directory for test blobs."""

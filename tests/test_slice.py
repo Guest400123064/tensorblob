@@ -1,5 +1,6 @@
 """Tests for slicing operations on TensorBlob."""
 
+import numpy as np
 import pytest
 import torch
 
@@ -332,6 +333,14 @@ class TestBatchIndexing:
 
         with TensorBlob.open(blob_dir, "r") as blob:
             assert torch.allclose(blob[idxs], sample_data[idxs])
+
+    def test_batch_numpy_array(self, blob_with_data):
+        """Test indexing with a numpy array of indices."""
+        blob_dir, sample_data = blob_with_data
+        idxs = np.array([4, 0, 77, 4])
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            assert torch.allclose(blob[idxs], sample_data[idxs.tolist()])
 
     def test_batch_tuple(self, blob_with_data):
         """Test indexing with a tuple of indices."""

@@ -279,7 +279,9 @@ class TensorDB(ConfigMixin):
     def __getitem__(
         self, idx: int | slice | list | tuple | torch.Tensor
     ) -> dict[str, torch.Tensor]:
-        if not isinstance(idx, (int, slice, list, tuple, torch.Tensor)):
+        if not isinstance(idx, (int, slice, list, tuple, torch.Tensor)) and not hasattr(
+            idx, "__array__"
+        ):
             raise TypeError(
                 "Index must be int, slice, or a sequence of int, "
                 f"got {type(idx).__name__!r}!"
