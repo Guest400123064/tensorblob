@@ -43,6 +43,24 @@ class TestBasicWrite:
             blob.write(data)
             assert len(blob) == 2  # 12 elements = 2 tensors of shape (2,3)
 
+    def test_write_dtype_mismatch(self, temp_blob_dir):
+        """Test that writing a mismatched dtype raises instead of silently casting."""
+        with TensorBlob.open(temp_blob_dir, "w", dtype="float32", shape=(5,)) as blob:
+            with pytest.raises(TypeError, match="does not match blob dtype"):
+                blob.write(torch.randn(10, 5, dtype=torch.float64))
+            with pytest.raises(TypeError, match="does not match blob dtype"):
+                blob.write(torch.ones(10, 5, dtype=torch.int64))
+            assert len(blob) == 0
+            blob.write(torch.randn(10, 5, dtype=torch.float32))
+            assert len(blob) == 10
+
+    def test_write_dtype_mismatch_int_blob(self, temp_blob_dir):
+        """Regression: float data written to an int blob must not silently truncate."""
+        with TensorBlob.open(temp_blob_dir, "w", dtype="int64", shape=(5,)) as blob:
+            with pytest.raises(TypeError, match="does not match blob dtype"):
+                blob.write(torch.full((10, 5), 0.5))
+            assert len(blob) == 0
+
 
 class TestBasicRead:
     """Tests for basic read operations."""

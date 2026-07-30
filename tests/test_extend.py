@@ -268,7 +268,7 @@ class TestExtendValidation:
 
         blob2_dir = temp_blob_dir / "blob2"
         with TensorBlob.open(blob2_dir, "w", dtype="float64", shape=(5,)) as blob:
-            blob.write(torch.randn(10, 5))
+            blob.write(torch.randn(10, 5, dtype=torch.float64))
 
         with (
             TensorBlob.open(blob1_dir, "r+") as blob1,
