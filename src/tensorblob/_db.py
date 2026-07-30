@@ -276,9 +276,14 @@ class TensorDB(ConfigMixin):
     def __len__(self) -> int:
         return self._status.len
 
-    def __getitem__(self, idx: int | slice) -> dict[str, torch.Tensor]:
-        if not isinstance(idx, (int, slice)):
-            raise TypeError(f"Index must be int or slice, got {type(idx).__name__!r}!")
+    def __getitem__(
+        self, idx: int | slice | list | tuple | torch.Tensor
+    ) -> dict[str, torch.Tensor]:
+        if not isinstance(idx, (int, slice, list, tuple, torch.Tensor)):
+            raise TypeError(
+                "Index must be int, slice, or a sequence of int, "
+                f"got {type(idx).__name__!r}!"
+            )
         return {name: col[idx] for name, col in self._cols.items()}
 
     def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:

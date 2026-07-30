@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gc
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
@@ -28,9 +27,11 @@ class LRUCache:
 
     Notes
     -----
-    The cache automatically triggers munmap() on evicted MemoryMappedTensor
-    objects by deleting them and forcing garbage collection. This ensures
-    kernel VMA structures are freed promptly.
+    Evicted MemoryMappedTensor objects are unmapped as soon as they are
+    dereferenced: CPython tears them down immediately via reference counting
+    (no internal views of cached blocks are ever kept). No explicit garbage
+    collection is needed, which keeps eviction cheap even when the cache
+    thrashes.
 
     Examples
     --------
@@ -61,9 +62,7 @@ class LRUCache:
         return key in self._map
 
     def __delitem__(self, key: str) -> None:
-        value = self._map.pop(key)
-        del value
-        gc.collect()
+        self._map.pop(key)
 
     def __len__(self) -> int:
         return len(self._map)
@@ -82,4 +81,3 @@ class LRUCache:
 
     def clear(self) -> None:
         self._map.clear()
-        gc.collect()

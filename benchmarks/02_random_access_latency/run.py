@@ -83,8 +83,8 @@ def main():
     med, p99 = latency(lambda q: src[q].clone(), queries)
     print(f"single-row  in-memory (upper bound)                median {med:8.1f} us   p99 {p99:8.1f} us")
 
-    # Random-batch access: TensorBlob supports int/slice indexing only, so a
-    # random batch is gathered row by row; in-memory uses fancy indexing.
+    # Random-batch access: compare row-by-row gather (the old way) with
+    # vectorized batch indexing, and in-memory fancy indexing as upper bound.
     print(f"\nRandom batch gather ({N_BATCHES} batches x {BATCH} rows)")
     batch_queries = [
         torch.randint(N_MAIN, (BATCH,), generator=g).tolist() for _ in range(N_BATCHES)
@@ -95,13 +95,19 @@ def main():
         for idxs in batch_queries:
             torch.stack([blob[i] for i in idxs])
         dt = time.perf_counter() - t0
-        print(f"  TensorBlob (row-by-row gather)  {dt / N_BATCHES * 1e3:8.2f} ms/batch")
+        print(f"  TensorBlob row-by-row gather     {dt / N_BATCHES * 1e3:8.2f} ms/batch")
+
+        t0 = time.perf_counter()
+        for idxs in batch_queries:
+            blob[idxs]
+        dt = time.perf_counter() - t0
+        print(f"  TensorBlob vectorized blob[idxs] {dt / N_BATCHES * 1e3:8.2f} ms/batch")
 
     t0 = time.perf_counter()
     for idxs in batch_queries:
         src[torch.tensor(idxs)]
     dt = time.perf_counter() - t0
-    print(f"  in-memory (fancy indexing)      {dt / N_BATCHES * 1e3:8.2f} ms/batch")
+    print(f"  in-memory (fancy indexing)       {dt / N_BATCHES * 1e3:8.2f} ms/batch")
 
     # Sweep: block_size x max_cached_blocks
     print(f"\nKnob sweep ({N_SWEEP:,} rows per config, median single-row latency)")

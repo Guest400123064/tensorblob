@@ -311,6 +311,17 @@ class TestIndexingAndSlicing:
             result = db[::-1]
             assert torch.allclose(result["embed"], sample_rows["embed"].flip(0))
 
+    def test_batch_indexing(self, db_with_data):
+        """Test batch indexing returns aligned batched tensors per field."""
+        db_dir, sample_rows = db_with_data
+        idxs = [3, 0, 99, -1, 42, 42]
+
+        with TensorDB.open(db_dir, "r") as db:
+            result = db[idxs]
+            assert set(result) == {"price", "embed"}
+            assert torch.allclose(result["price"], sample_rows["price"][idxs])
+            assert torch.allclose(result["embed"], sample_rows["embed"][idxs])
+
     def test_indexing_returns_clone(self, tmp_path, schema):
         """Test that retrieved rows are copies, not references."""
         with TensorDB.open(tmp_path / "db", "w", schema=schema) as db:

@@ -194,11 +194,11 @@ with TensorBlob.open("data.blob", "r", max_cached_blocks=100) as blob:
 **Performance tips:**
 
 - Sequential access patterns work well with any cache size
-- Random access benefits from larger cache sizes — but **do not undersize the cache for random workloads**: when the random working set exceeds `max_cached_blocks`, every access evicts and remaps a block, and latency can degrade by three orders of magnitude (~30 µs → ~70 ms per lookup in our benchmarks). If in doubt, increase the cache or the block size
+- Random access benefits from larger cache sizes — but **do not undersize the cache for random workloads**: when the random working set exceeds `max_cached_blocks`, every access evicts and remaps a block, degrading lookup latency several-fold (~30 µs → ~140 µs in our benchmarks). If in doubt, increase the cache or the block size
 - Each cached block consumes ~200 bytes of kernel memory (VMA overhead)
 - System limit: typically ~65,000 memory-mapped regions per process
 - To avoid frequent cache evictions, one can also increase the block size to reduce the total number of blocks
-- Prefer contiguous slices over row-by-row gathers: `TensorBlob` supports integer and slice indexing, so a random batch must be gathered row by row, which is much slower than a contiguous slice. When batch order is flexible, sort indices first
+- For random batches, use vectorized batch indexing `blob[idxs]` (list, tuple, or 1-D torch.Tensor of row indices) instead of gathering row by row — it is ~7x faster; contiguous slices are faster still, so pre-sorting indices helps when order is flexible
 
 ### Benchmarks
 

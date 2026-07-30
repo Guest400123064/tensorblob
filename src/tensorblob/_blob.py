@@ -6,7 +6,7 @@ import shutil
 import uuid
 import warnings
 from dataclasses import dataclass, field
-from itertools import groupby
+from itertools import groupby, pairwise
 from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
@@ -320,30 +320,70 @@ class TensorBlob(ConfigMixin):
     def __len__(self) -> int:
         return self._status.len
 
-    def __getitem__(self, idx: int | slice) -> torch.Tensor:
-        if not isinstance(idx, (int, slice)):
-            raise TypeError(f"Index must be int or slice, got {type(idx).__name__!r}!")
+    def __getitem__(
+        self, idx: int | slice | list | tuple | torch.Tensor
+    ) -> torch.Tensor:
         if isinstance(idx, int):
             if idx >= len(self) or idx < -len(self):
-                raise IndexError(
-                    f"Index out of bounds: {idx!r} (length: {len(self)})"
-                )
+                raise IndexError(f"Index out of bounds: {idx!r} (length: {len(self)})")
             i, o = divmod(idx + len(self) if idx < 0 else idx, self.block_size)
             return self._getblock(i)[o].clone()
+        if isinstance(idx, slice):
+            # Although the current implementation may not be efficient, it is very easy to
+            # understand and debug. More efficient implementation requires much more complex
+            # edge case handling and is error prone. Also, I think the primary cost here is
+            # still the I/O operations, not the Python code.
+            ret = [
+                self._getblock(bd)[[i % self.block_size for i in _is]]
+                for bd, _is in groupby(
+                    range(*idx.indices(len(self))), key=lambda i: i // self.block_size
+                )
+            ]
+            if not ret:
+                return torch.empty(0, *self.shape, dtype=getattr(torch, self.dtype))
+            return torch.cat(ret, dim=0)
+        if isinstance(idx, (list, tuple, torch.Tensor)):
+            return self._getbatch(idx)
+        raise TypeError(
+            "Index must be int, slice, or a sequence of int, "
+            f"got {type(idx).__name__!r}!"
+        )
 
-        # Although the current implementation may not be efficient, it is very easy to
-        # understand and debug. More efficient implementation requires much more complex
-        # edge case handling and is error prone. Also, I think the primary cost here is
-        # still the I/O operations, not the Python code.
-        ret = [
-            self._getblock(bd)[[i % self.block_size for i in _is]]
-            for bd, _is in groupby(
-                range(*idx.indices(len(self))), key=lambda i: i // self.block_size
-            )
-        ]
-        if not ret:
+    def _getbatch(self, idx) -> torch.Tensor:
+        # Vectorized fancy indexing: gather rows in block-sorted order (one
+        # vectorized lookup per distinct block), then scatter back to the
+        # original order, mirroring torch's fancy indexing semantics.
+        idx = torch.as_tensor(idx)
+        if idx.numel() and (
+            idx.dtype == torch.bool or idx.is_floating_point() or idx.is_complex()
+        ):
+            raise TypeError(f"Batch index must have an integer dtype, got {idx.dtype}!")
+        idx = idx.long()
+        if idx.ndim != 1:
+            raise ValueError(f"Batch index must be 1-dimensional, got {idx.ndim}!")
+        if not idx.numel():
             return torch.empty(0, *self.shape, dtype=getattr(torch, self.dtype))
-        return torch.cat(ret, dim=0)
+
+        n = len(self)
+        idx = torch.where(idx < 0, idx + n, idx)
+        if bool(((idx >= n) | (idx < 0)).any()):
+            raise IndexError(f"Index out of bounds (length: {n})")
+
+        order = torch.argsort(
+            torch.div(idx, self.block_size, rounding_mode="floor"), stable=True
+        )
+        sidx = idx[order]
+        blk = torch.div(sidx, self.block_size, rounding_mode="floor")
+        off = sidx - blk * self.block_size
+
+        # Boundaries between consecutive runs of identical block ids
+        brks = (
+            [0] + (blk[1:] != blk[:-1]).nonzero().flatten().add(1).tolist() + [len(blk)]
+        )
+        gathered = torch.cat(
+            [self._getblock(int(blk[lo]))[off[lo:hi]] for lo, hi in pairwise(brks)]
+        )
+        return gathered[torch.argsort(order)]
 
     def __iter__(self) -> Iterator[torch.Tensor]:
         for i in range(self._pos, len(self)):

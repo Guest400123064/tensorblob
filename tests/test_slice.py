@@ -294,3 +294,119 @@ class TestSliceComparison:
             for i in range(30, 40):
                 assert torch.allclose(blob[i], sample_data[i])
 
+
+
+class TestBatchIndexing:
+    """Tests for vectorized batch (fancy) indexing."""
+
+    def test_batch_matches_row_by_row(self, blob_with_data):
+        """Test batch indexing returns the same rows as repeated indexing."""
+        blob_dir, sample_data = blob_with_data
+        idxs = [3, 0, 99, 42, 7, 50]
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            result = blob[idxs]
+            assert result.shape == (6, 10)
+            assert torch.allclose(result, sample_data[idxs])
+
+    def test_batch_order_and_duplicates(self, blob_with_data):
+        """Test input order is preserved and duplicates are allowed."""
+        blob_dir, sample_data = blob_with_data
+        idxs = [5, 1, 5, 1, 90]
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            assert torch.allclose(blob[idxs], sample_data[idxs])
+
+    def test_batch_negative_indices(self, blob_with_data):
+        """Test negative indices in batch indexing."""
+        blob_dir, sample_data = blob_with_data
+        idxs = [-1, -100, 0, -50]
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            assert torch.allclose(blob[idxs], sample_data[idxs])
+
+    def test_batch_torch_tensor(self, blob_with_data):
+        """Test indexing with a torch tensor of indices."""
+        blob_dir, sample_data = blob_with_data
+        idxs = torch.tensor([10, 20, 30])
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            assert torch.allclose(blob[idxs], sample_data[idxs])
+
+    def test_batch_tuple(self, blob_with_data):
+        """Test indexing with a tuple of indices."""
+        blob_dir, sample_data = blob_with_data
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            assert torch.allclose(blob[(1, 2, 3)], sample_data[[1, 2, 3]])
+
+    def test_batch_single_element(self, blob_with_data):
+        """Test single-element batch keeps the batch dimension."""
+        blob_dir, sample_data = blob_with_data
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            result = blob[[5]]
+            assert result.shape == (1, 10)
+            assert torch.allclose(result, sample_data[[5]])
+
+    def test_batch_empty(self, blob_with_data):
+        """Test empty batch returns an empty tensor."""
+        blob_dir, _ = blob_with_data
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            result = blob[[]]
+            assert result.shape == (0, 10)
+
+    def test_batch_across_blocks(self, multi_block_blob):
+        """Test batch indexing spanning multiple blocks."""
+        blob_dir, data, _ = multi_block_blob
+        idxs = [0, 49, 50, 51, 149, 75, 0]
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            assert torch.allclose(blob[idxs], data[idxs])
+
+    def test_batch_out_of_bounds(self, blob_with_data):
+        """Test that out-of-bounds batch indices raise IndexError."""
+        blob_dir, _ = blob_with_data
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            with pytest.raises(IndexError, match="out of bounds"):
+                _ = blob[[0, 100]]
+            with pytest.raises(IndexError, match="out of bounds"):
+                _ = blob[[-101]]
+
+    def test_batch_invalid_dtypes(self, blob_with_data):
+        """Test that non-integer batch indices raise TypeError."""
+        blob_dir, _ = blob_with_data
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            with pytest.raises(TypeError, match="integer dtype"):
+                _ = blob[torch.tensor([True, False])]
+            with pytest.raises(TypeError, match="integer dtype"):
+                _ = blob[[1.5, 2.0]]
+            with pytest.raises(ValueError, match="1-dimensional"):
+                _ = blob[torch.tensor([[1, 2], [3, 4]])]
+
+    def test_batch_returns_copy(self, temp_blob_dir):
+        """Test that batch results are copies, not references."""
+        with TensorBlob.open(temp_blob_dir, "w", dtype="float32", shape=(5,)) as blob:
+            blob.write(torch.ones(10, 5))
+
+        with TensorBlob.open(temp_blob_dir, "r") as blob:
+            batch = blob[[0, 1]]
+            batch[0] = 999.0
+            assert torch.allclose(blob[0], torch.ones(5))
+
+    def test_batch_sorted_fast_path_equivalence(self, blob_with_data):
+        """Test sorted and unsorted queries return the same rows."""
+        blob_dir, sample_data = blob_with_data
+        idxs = torch.randperm(100)[:40]
+
+        with TensorBlob.open(blob_dir, "r") as blob:
+            unsorted_result = blob[idxs]
+            order = torch.argsort(idxs)
+            sorted_result = blob[idxs[order]]
+            assert torch.allclose(sorted_result, sample_data[idxs[order]])
+            assert torch.allclose(
+                unsorted_result, sorted_result[torch.argsort(order)]
+            )

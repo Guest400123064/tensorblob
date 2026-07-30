@@ -60,42 +60,43 @@ file per rep.
 
 | Access | Median | p99 |
 |---|---|---|
-| TensorBlob `blob[i]` | 31 µs | 110 µs |
-| In-memory `src[i].clone()` | 4.7 µs | 14 µs |
+| TensorBlob `blob[i]` | 30 µs | 126 µs |
+| In-memory `src[i].clone()` | 4.9 µs | 44 µs |
 
 Random batch gather (64 batches × 512 rows):
 
 | Access | Per batch |
 |---|---|
-| TensorBlob row-by-row (`[blob[i] for i in idxs]`) | 17.2 ms |
-| In-memory fancy indexing | 0.26 ms |
+| TensorBlob row-by-row (`[blob[i] for i in idxs]`) | 17.1 ms |
+| TensorBlob vectorized `blob[idxs]` | 2.5 ms |
+| In-memory fancy indexing | 0.65 ms |
 
 **Interpretation.** Single-row random access costs tens of microseconds —
-negligible next to any model computation. The weak spot is random *batch*
-gather: `TensorBlob` indexes by int/slice only, so batches are gathered row
-by row, ~66x slower than fancy indexing. When order is flexible, sort
-indices and use slices.
+negligible next to any model computation. Batch gather uses the vectorized
+fancy-indexing API (`blob[idxs]`, accepts list/tuple/torch.Tensor): rows
+are grouped by block, gathered with one torch call per block, and
+scattered back to input order — ~7x faster than row-by-row. Residual gap
+to in-memory is the per-block cache lookup and concatenation.
 
 Knob sweep (200k rows per config, median single-row latency):
 
 | block_size | max_cached_blocks | Median | p99 |
 |---|---|---|---|
-| 1,024 | 16 | **72,840 µs** | 88,254 µs |
-| 1,024 | 256 | 31 µs | 113 µs |
-| 1,024 | 4,096 | 31 µs | 113 µs |
-| 8,192 | 16 | 58 µs | 85,464 µs |
-| 8,192 | 256 | 31 µs | 116 µs |
-| 65,536 | 16 | 32 µs | 133 µs |
-| 65,536 | 4,096 | 29 µs | 88 µs |
+| 1,024 | 16 | 136 µs | 339 µs |
+| 1,024 | 256 | 29 µs | 96 µs |
+| 1,024 | 4,096 | 29 µs | 100 µs |
+| 8,192 | 16 | 34 µs | 218 µs |
+| 8,192 | 256 | 28 µs | 76 µs |
+| 65,536 | 16 | 28 µs | 98 µs |
+| 65,536 | 4,096 | 29 µs | 120 µs |
 
-**Key finding — the thrash cliff.** With 196 blocks and only 16 cache
-slots, random access evicts on nearly every lookup, and latency explodes
-~2,400x. The dominant cost is `gc.collect()` running on *every* eviction
-(`src/tensorblob/_lru.py`), i.e. a full garbage collection per cache miss.
-Larger blocks reduce the block count (fewer evictions), and larger caches
-avoid thrashing entirely — beyond the working-set size, bigger caches add
-nothing. Practical rule: `max_cached_blocks` should cover the random
-working set, or `block_size` should be raised to shrink the working set.
+**Interpretation.** An undersized cache still costs ~4-5x median latency
+(136 µs vs 29 µs) from constant remapping, but the catastrophic cliff is
+gone: evicted blocks are unmapped by reference counting alone, so eviction
+no longer triggers a full `gc.collect()` per miss. (In an earlier revision
+of the library, the 1,024/16 cell measured **72.8 ms** — a ~2,400x
+degradation caused by per-eviction garbage collection.) Beyond the
+working-set size, bigger caches add nothing.
 
 ## 03 — Preprocessing offload
 
@@ -156,12 +157,15 @@ no projection API.
 
 ## Known performance limitations (candidates for future work)
 
-1. **No vectorized batch indexing** — random batches are gathered row by
-   row (~66x slower than fancy indexing). A list/ndarray indexing API
-   could group indices by block internally, like slicing already does.
-2. **`gc.collect()` on every LRU eviction** — a thrashing cache pays a full
-   GC per access (~70 ms). Batching GC, or relying on reference counting
-   for `MemoryMappedTensor` teardown, would remove the cliff.
-3. **Sequential read ~2x vs monolithic mmap** — per-batch block lookup and
+1. **Sequential read ~2x vs monolithic mmap** — per-batch block lookup and
    copy overhead; could be reduced with a fast path for block-aligned
    contiguous reads.
+
+## Addressed in the current revision
+
+1. ~~No vectorized batch indexing~~ — `blob[idxs]` now accepts a 1-D
+   integer sequence (list/tuple/torch.Tensor) with torch fancy-indexing
+   semantics (~7x faster batch gathers; see 02).
+2. ~~`gc.collect()` on every LRU eviction~~ — removed; eviction relies on
+   reference counting, collapsing the thrash cliff from ~73 ms to ~136 µs
+   (see 02).
