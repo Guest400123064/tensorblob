@@ -1,0 +1,13 @@
+Machine: x86_64 Linux, 12 cores, 15920 MiB RAM | python 3.10.12, torch 2.13.0+cu130
+Data: 500,000 rows x 768 float32 = 1,536 MB, batch=8,192, reps=3
+
+WRITE (sequential)
+  TensorBlob.write                         9.305 s         53,735 rows/s       165 MB/s
+  monolithic MemoryMappedTensor           14.180 s         35,260 rows/s       108 MB/s
+
+READ (sequential, batched)
+  TensorBlob (cold)                        0.802 s        623,222 rows/s     1,915 MB/s
+  monolithic mmap (cold)                   0.301 s      1,660,772 rows/s     5,102 MB/s
+  TensorBlob (warm)                        0.682 s        732,745 rows/s     2,251 MB/s
+  monolithic mmap (warm)                   0.327 s      1,529,628 rows/s     4,699 MB/s
+  in-memory tensor (upper bound)           0.213 s      2,347,599 rows/s     7,212 MB/s

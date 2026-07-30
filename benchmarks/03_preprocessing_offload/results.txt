@@ -1,0 +1,11 @@
+Machine: x86_64 Linux, 12 cores, 15920 MiB RAM | python 3.10.12, torch 2.13.0+cu130
+Data: 50,000 uint8 samples (3, 64, 64), batch=256, epochs=5, torch threads=6
+
+per-epoch raw pipeline      : ['2.73', '2.89', '2.85', '2.92', '2.88'] s (median 2.88)
+per-epoch compiled pipeline : ['0.19', '0.16', '0.18', '0.19', '0.17'] s (median 0.18)
+one-time compilation cost   : 3.27 s
+
+total over 5 epochs (median):
+  raw         14.39 s
+  compiled     4.16 s   (3.46x faster)
+  break-even: compiled pipeline pays off after ~1.2 epochs
