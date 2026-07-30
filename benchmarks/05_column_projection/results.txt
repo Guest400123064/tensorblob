@@ -1,10 +1,11 @@
+Commit: e88caea (dev, post strict-write-dtype) | 2026-07-30 | HDD via WSL2 (ext4, warm page cache)
 Machine: x86_64 Linux, 12 cores, 15920 MiB RAM | python 3.10.12, torch 2.13.0+cu130
 Data: 200,000 rows | label (1 float) vs embed (768 floats)
 
 Sequential full pass:
-  label only     0.063 s
-  full row       0.399 s   (  6.3x more expensive)
+  label only     0.062 s
+  full row       0.301 s   (  4.9x more expensive)
 
 Random single-row lookup (median over 10,000):
-  label only       24.4 us
-  full row         57.5 us
+  label only       23.2 us
+  full row         55.5 us

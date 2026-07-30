@@ -1,22 +1,23 @@
+Commit: e88caea (dev, post strict-write-dtype) | 2026-07-30 | HDD via WSL2 (ext4, warm page cache)
 Machine: x86_64 Linux, 12 cores, 15920 MiB RAM | python 3.10.12, torch 2.13.0+cu130
 Random single-row latency over 10,000 queries (fixed seed)
 
-single-row  TensorBlob (block=8192, default cache)  median     29.7 us   p99    125.8 us
-single-row  in-memory (upper bound)                median      4.9 us   p99     44.0 us
+single-row  TensorBlob (block=8192, default cache)  median     30.3 us   p99    100.0 us
+single-row  in-memory (upper bound)                median      4.6 us   p99     11.8 us
 
 Random batch gather (64 batches x 512 rows)
-  TensorBlob row-by-row gather        17.05 ms/batch
-  TensorBlob vectorized blob[idxs]     2.48 ms/batch
-  in-memory (fancy indexing)           0.65 ms/batch
+  TensorBlob row-by-row gather        16.02 ms/batch
+  TensorBlob vectorized blob[idxs]     2.19 ms/batch
+  in-memory (fancy indexing)           0.28 ms/batch
 
 Knob sweep (200,000 rows per config, median single-row latency)
   block_size max_cached     median        p99
-       1,024         16    136.0us    339.0us
-       1,024        256     28.6us     96.4us
-       1,024      4,096     28.9us     99.5us
-       8,192         16     34.0us    217.9us
-       8,192        256     28.0us     76.2us
-       8,192      4,096     28.5us     92.8us
-      65,536         16     27.7us     97.5us
-      65,536        256     29.0us    112.0us
-      65,536      4,096     28.6us    120.1us
+       1,024         16    140.7us    336.7us
+       1,024        256     30.0us    103.2us
+       1,024      4,096     29.6us    106.5us
+       8,192         16     36.4us    300.5us
+       8,192        256     29.4us     86.9us
+       8,192      4,096     28.1us     71.2us
+      65,536         16     27.8us     86.5us
+      65,536        256     27.8us     72.2us
+      65,536      4,096     27.5us     69.0us

@@ -202,16 +202,17 @@ with TensorBlob.open("data.blob", "r", max_cached_blocks=100) as blob:
 
 ### Benchmarks
 
-Headline numbers from the synthetic benchmark suite (500k × 768-dim float32 rows, 12-core x86_64, 16 GiB RAM; see [`benchmarks/`](benchmarks/) for full analysis and reproducible scripts):
+Headline numbers from the synthetic benchmark suite (500k × 768-dim float32 rows, 12-core x86_64, 16 GiB RAM, HDD via WSL2 with warm page cache; see [`benchmarks/`](benchmarks/) for full analysis and reproducible scripts):
 
 | Measurement | Result |
 |---|---|
-| Sequential write throughput | ~165 MB/s (~54k rows/s) |
-| Sequential read throughput | ~2.2 GB/s (~730k rows/s), vs ~7.2 GB/s in-memory upper bound |
-| Random single-row lookup | ~31 µs median (in-memory: ~5 µs) |
+| Sequential write throughput | ~380 MB/s (~123k rows/s), page-cache absorbed |
+| Sequential read throughput | ~2.5 GB/s (~824k rows/s), vs ~7.6 GB/s in-memory upper bound |
+| Random single-row lookup | ~30 µs median (in-memory: ~5 µs) |
+| Random batch gather (512 rows) | ~2.2 ms vectorized vs ~16 ms row-by-row (~7x) |
 | Preprocessing offload (5 epochs) | ~3.5x faster than re-preprocessing; breaks even after ~1.2 epochs |
 | Memory footprint | bounded by `max_cached_blocks`; +16 VMAs / +1.3 MiB RSS at cache size 16 |
-| TensorDB column projection | reading one cheap field only is ~6x cheaper than full-row reads |
+| TensorDB column projection | reading one cheap field only is ~5x cheaper than full-row reads |
 
 ## Contributing
 

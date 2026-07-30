@@ -1,8 +1,9 @@
+Commit: e88caea (dev, post strict-write-dtype) | 2026-07-30 | HDD via WSL2 (ext4, warm page cache)
 Machine: x86_64 Linux, 12 cores, 15920 MiB RAM | python 3.10.12, torch 2.13.0+cu130
 Data: 128,000 rows x 768 float32 in 2,000 blocks of 64 rows | 5,000 random accesses per config
 
    max_cached_blocks  VmRSS delta  VMA delta
-  (baseline, no access)      856.1MiB        636
+  (baseline, no access)      839.1MiB        637
                   16      +1.3MiB        +16
                  128      +7.3MiB       +112
-             100,000    +203.0MiB      +1704
+             100,000    +203.4MiB      +1704
