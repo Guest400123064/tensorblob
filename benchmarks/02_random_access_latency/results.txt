@@ -1,23 +1,27 @@
-Commit: e88caea (dev, post strict-write-dtype) | 2026-07-30 | HDD via WSL2 (ext4, warm page cache)
+Commit: e88caea (dev, post strict-write-dtype) | 2026-07-30 | HDD via WSL2 (ext4)
 Machine: x86_64 Linux, 12 cores, 15920 MiB RAM | python 3.10.12, torch 2.13.0+cu130
 Random single-row latency over 10,000 queries (fixed seed)
 
-single-row  TensorBlob (block=8192, default cache)  median     30.3 us   p99    100.0 us
-single-row  in-memory (upper bound)                median      4.6 us   p99     11.8 us
+single-row  TensorBlob (disk-cold)                median     32.4 us   p99 509383.3 us  (2,000 queries)
+single-row  TensorBlob (block=8192, default cache)  median     30.1 us   p99     97.6 us
+single-row  in-memory (upper bound)                median      4.5 us   p99     14.6 us
 
 Random batch gather (64 batches x 512 rows)
-  TensorBlob row-by-row gather        16.02 ms/batch
-  TensorBlob vectorized blob[idxs]     2.19 ms/batch
-  in-memory (fancy indexing)           0.28 ms/batch
+  TensorBlob row-by-row gather        15.67 ms/batch
+  TensorBlob vectorized blob[idxs]     2.25 ms/batch
+  in-memory (fancy indexing)           0.26 ms/batch
 
 Knob sweep (200,000 rows per config, median single-row latency)
   block_size max_cached     median        p99
-       1,024         16    140.7us    336.7us
-       1,024        256     30.0us    103.2us
-       1,024      4,096     29.6us    106.5us
-       8,192         16     36.4us    300.5us
-       8,192        256     29.4us     86.9us
-       8,192      4,096     28.1us     71.2us
-      65,536         16     27.8us     86.5us
-      65,536        256     27.8us     72.2us
-      65,536      4,096     27.5us     69.0us
+       1,024         16    139.1us    260.0us
+       1,024        256     29.9us     98.7us
+       1,024      4,096     29.1us     95.6us
+       8,192         16    35.6us    225.8us
+       8,192        256     29.1us     66.7us
+       8,192      4,096     28.6us     64.3us
+      65,536         16    27.0us     65.9us
+      65,536        256     27.2us     79.4us
+      65,536      4,096     28.4us     69.0us
+
+"disk-cold" = page-cache pages discarded via POSIX_FADV_DONTNEED and a fresh
+blob handle before querying, so first touches are served from disk.

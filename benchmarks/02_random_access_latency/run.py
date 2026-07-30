@@ -51,6 +51,19 @@ def make_blob(path, n, block_size, src):
         blob.write(src[:n])
 
 
+def drop_page_cache(path):
+    """Discard clean page-cache pages of every file under `path` (non-root
+    alternative to /proc/sys/vm/drop_caches; see 01_raw_io_throughput)."""
+    os.sync()
+    for root, _, files in os.walk(path):
+        for name in files:
+            fd = os.open(os.path.join(root, name), os.O_RDONLY)
+            try:
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            finally:
+                os.close(fd)
+
+
 def latency(fn, queries):
     samples = []
     for q in queries:
@@ -75,6 +88,13 @@ def main():
     queries = torch.randint(N_MAIN, (N_QUERIES,), generator=g).tolist()
 
     make_blob(f"{DATA}/main", N_MAIN, 8192, src)
+
+    # Disk-cold first: page-cache pages discarded, fresh blob handle, and a
+    # smaller query count since each miss costs a disk seek on HDD.
+    drop_page_cache(f"{DATA}/main")
+    with TensorBlob.open(f"{DATA}/main", "r") as blob:
+        med, p99 = latency(lambda q: blob[q], queries[:2_000])
+        print(f"single-row  TensorBlob (disk-cold)                median {med:8.1f} us   p99 {p99:8.1f} us  (2,000 queries)")
 
     with TensorBlob.open(f"{DATA}/main", "r") as blob:
         med, p99 = latency(lambda q: blob[q], queries)

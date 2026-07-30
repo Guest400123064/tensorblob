@@ -11,9 +11,10 @@ Data: float32 tensors of shape (768,), 500,000 rows (~1.5 GiB).
 
 Reads are performed in batches of 8,192 rows (TensorBlob's default block
 size). "cold" = first pass right after opening (pages not yet faulted into
-the page cache); "warm" = second pass (page cache hot). Note that true
-disk-cold numbers would require dropping the OS page cache, which needs
-root; "cold" here means "first userspace access".
+the page cache); "warm" = second pass (page cache hot); "disk-cold" =
+page-cache pages explicitly discarded beforehand via POSIX_FADV_DONTNEED
+(works without root; dirty pages are flushed with os.sync() first), so the
+read is served from the disk itself.
 
 Each measurement is repeated REPS times; the median is reported.
 """
@@ -56,6 +57,24 @@ def machine_info() -> str:
 def reset():
     shutil.rmtree(DATA, ignore_errors=True)
     os.makedirs(DATA)
+
+
+def drop_page_cache(path):
+    """Discard clean page-cache pages of every file under `path`.
+
+    Non-root alternative to writing /proc/sys/vm/drop_caches: dirty pages
+    are flushed by os.sync(), then POSIX_FADV_DONTNEED asks the kernel to
+    drop each file's cached pages. Best-effort (pages pinned by other
+    processes may survive), which is fine for benchmarking.
+    """
+    os.sync()
+    for root, _, files in os.walk(path):
+        for name in files:
+            fd = os.open(os.path.join(root, name), os.O_RDONLY)
+            try:
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            finally:
+                os.close(fd)
 
 
 def timeit(fn, reps=REPS):
@@ -122,6 +141,11 @@ def main():
     # Cold: reopen fresh each rep so the first pass faults pages in.
     report("TensorBlob (cold)", timeit(read_blob, reps=1))
     report("monolithic mmap (cold)", timeit(read_monolith, reps=1))
+    # Disk-cold: page-cache pages discarded, so the pass reads from disk.
+    drop_page_cache(f"{DATA}/blob")
+    report("TensorBlob (disk-cold)", timeit(read_blob, reps=1))
+    drop_page_cache(f"{DATA}/monolith.mmap")
+    report("monolithic mmap (disk-cold)", timeit(read_monolith, reps=1))
     report("TensorBlob (warm)", timeit(read_blob))
     report("monolithic mmap (warm)", timeit(read_monolith))
     report("in-memory tensor (upper bound)", timeit(read_memory))

@@ -1,14 +1,19 @@
-Commit: e88caea (dev, post strict-write-dtype) | 2026-07-30 | HDD via WSL2 (ext4, warm page cache)
+Commit: e88caea (dev, post strict-write-dtype) | 2026-07-30 | HDD via WSL2 (ext4)
 Machine: x86_64 Linux, 12 cores, 15920 MiB RAM | python 3.10.12, torch 2.13.0+cu130
 Data: 500,000 rows x 768 float32 = 1,536 MB, batch=8,192, reps=3
 
 WRITE (sequential)
-  TensorBlob.write                         4.049 s        123,491 rows/s       379 MB/s
-  monolithic MemoryMappedTensor           13.748 s         36,370 rows/s       112 MB/s
+  TensorBlob.write                         1.875 s        266,597 rows/s       819 MB/s
+  monolithic MemoryMappedTensor           13.672 s         36,572 rows/s       112 MB/s
 
 READ (sequential, batched)
-  TensorBlob (cold)                        1.656 s        302,017 rows/s       928 MB/s
-  monolithic mmap (cold)                   0.280 s      1,784,945 rows/s     5,483 MB/s
-  TensorBlob (warm)                        0.607 s        824,010 rows/s     2,531 MB/s
-  monolithic mmap (warm)                   0.243 s      2,061,517 rows/s     6,333 MB/s
-  in-memory tensor (upper bound)           0.202 s      2,473,457 rows/s     7,598 MB/s
+  TensorBlob (cold)                        1.205 s        415,006 rows/s     1,275 MB/s
+  monolithic mmap (cold)                   0.282 s      1,775,226 rows/s     5,453 MB/s
+  TensorBlob (disk-cold)                  55.563 s          8,999 rows/s        28 MB/s
+  monolithic mmap (disk-cold)             41.372 s         12,086 rows/s        37 MB/s
+  TensorBlob (warm)                        0.514 s        973,172 rows/s     2,990 MB/s
+  monolithic mmap (warm)                   0.192 s      2,604,237 rows/s     8,000 MB/s
+  in-memory tensor (upper bound)           0.155 s      3,235,900 rows/s     9,941 MB/s
+
+"disk-cold" = page-cache pages discarded via POSIX_FADV_DONTNEED before the
+pass (non-root page-cache drop), so reads are served from the disk itself.

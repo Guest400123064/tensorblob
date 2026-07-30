@@ -206,10 +206,11 @@ Headline numbers from the synthetic benchmark suite (500k × 768-dim float32 row
 
 | Measurement | Result |
 |---|---|
-| Sequential write throughput | ~380 MB/s (~123k rows/s), page-cache absorbed |
-| Sequential read throughput | ~2.5 GB/s (~824k rows/s), vs ~7.6 GB/s in-memory upper bound |
-| Random single-row lookup | ~30 µs median (in-memory: ~5 µs) |
-| Random batch gather (512 rows) | ~2.2 ms vectorized vs ~16 ms row-by-row (~7x) |
+| Sequential write throughput | ~0.4-0.8 GB/s (~123-267k rows/s), page-cache absorbed |
+| Sequential read throughput (warm) | ~3.0 GB/s (~973k rows/s), vs ~9.9 GB/s in-memory upper bound |
+| Sequential read throughput (disk-cold, HDD) | ~28 MB/s — demand-paged mmap is seek-bound when cold; amortized away after the first pass |
+| Random single-row lookup | ~30 µs median (in-memory: ~5 µs); disk-cold is bimodal — median unchanged, ~0.5 s p99 on first touches |
+| Random batch gather (512 rows) | ~2.3 ms vectorized vs ~16 ms row-by-row (~7x) |
 | Preprocessing offload (5 epochs) | ~3.5x faster than re-preprocessing; breaks even after ~1.2 epochs |
 | Memory footprint | bounded by `max_cached_blocks`; +16 VMAs / +1.3 MiB RSS at cache size 16 |
 | TensorDB column projection | reading one cheap field only is ~5x cheaper than full-row reads |
