@@ -194,10 +194,24 @@ with TensorBlob.open("data.blob", "r", max_cached_blocks=100) as blob:
 **Performance tips:**
 
 - Sequential access patterns work well with any cache size
-- Random access benefits from larger cache sizes
+- Random access benefits from larger cache sizes — but **do not undersize the cache for random workloads**: when the random working set exceeds `max_cached_blocks`, every access evicts and remaps a block, and latency can degrade by three orders of magnitude (~30 µs → ~70 ms per lookup in our benchmarks). If in doubt, increase the cache or the block size
 - Each cached block consumes ~200 bytes of kernel memory (VMA overhead)
 - System limit: typically ~65,000 memory-mapped regions per process
 - To avoid frequent cache evictions, one can also increase the block size to reduce the total number of blocks
+- Prefer contiguous slices over row-by-row gathers: `TensorBlob` supports integer and slice indexing, so a random batch must be gathered row by row, which is much slower than a contiguous slice. When batch order is flexible, sort indices first
+
+### Benchmarks
+
+Headline numbers from the synthetic benchmark suite (500k × 768-dim float32 rows, 12-core x86_64, 16 GiB RAM; see [`benchmarks/`](benchmarks/) for full analysis and reproducible scripts):
+
+| Measurement | Result |
+|---|---|
+| Sequential write throughput | ~165 MB/s (~54k rows/s) |
+| Sequential read throughput | ~2.2 GB/s (~730k rows/s), vs ~7.2 GB/s in-memory upper bound |
+| Random single-row lookup | ~31 µs median (in-memory: ~5 µs) |
+| Preprocessing offload (5 epochs) | ~3.5x faster than re-preprocessing; breaks even after ~1.2 epochs |
+| Memory footprint | bounded by `max_cached_blocks`; +16 VMAs / +1.3 MiB RSS at cache size 16 |
+| TensorDB column projection | reading one cheap field only is ~6x cheaper than full-row reads |
 
 ## Contributing
 
