@@ -516,6 +516,10 @@ class TensorBlob(ConfigMixin):
         if self._m_ap:
             self.seek(whence=io.SEEK_END)
         ts = ts.view(-1, *self.shape)
+        if ts.dtype != (dtype := getattr(torch, self.dtype)):
+            raise TypeError(
+                f"Tensor dtype {ts.dtype} does not match blob dtype {dtype}!"
+            )
         nt = ts.size(0)
 
         cnt = 0

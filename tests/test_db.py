@@ -530,7 +530,9 @@ class TestExtend:
             tmp_path / "db1", {"a": ("float32", (2,))}, {"a": torch.randn(10, 2)}
         )
         self._make_db(
-            tmp_path / "db2", {"a": ("float64", (2,))}, {"a": torch.randn(10, 2)}
+            tmp_path / "db2",
+            {"a": ("float64", (2,))},
+            {"a": torch.randn(10, 2, dtype=torch.float64)},
         )
         with (
             TensorDB.open(tmp_path / "db1", "r+") as db1,

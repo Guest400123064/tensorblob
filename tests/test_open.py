@@ -336,7 +336,7 @@ class TestConfigPersistence:
     def test_dtype_persisted(self, temp_blob_dir):
         """Test that dtype is persisted when reopening blob."""
         with TensorBlob.open(temp_blob_dir, "w", dtype="float64", shape=(10,)) as blob:
-            blob.write(torch.randn(10, 10))
+            blob.write(torch.randn(10, 10, dtype=torch.float64))
         
         with TensorBlob.open(temp_blob_dir, "r") as blob:
             assert blob.dtype == "float64"
